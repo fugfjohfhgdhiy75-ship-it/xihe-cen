@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude 对话查看器</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<style>
+:root {
+  --primary:       #D97757;
+  --primary-dark:  #C4653A;
+  --primary-light: #F5E6D3;
+  --sand:          #E8DDD3;
+  --bg:            #FAF8F5;
+  --surface:       #FFFFFF;
+  --text:          #1A1A1A;
+  --text-2:        #4A4543;
+  --text-3:        #9C9590;
+  --shadow:        rgba(193,165,140,0.15);
+  --font-d: Georgia, 'Lora', 'Times New Roman', serif;
+  --font-b: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-m: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-b); font-size: 15px; line-height: 1.65; }
+
+/* ── Upload Screen ── */
+#upload-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; gap: 24px; padding: 24px;
+}
+.upload-logo { font-family: var(--font-d); font-size: 30px; color: var(--primary); }
+.drop-zone {
+  border: 2px dashed var(--sand); border-radius: 20px; padding: 48px 56px;
+  text-align: center; cursor: pointer; background: var(--surface);
+  max-width: 420px; width: 100%; transition: all 0.2s;
+}
+.drop-zone:hover, .drop-zone.over { border-color: var(--primary); background: var(--primary-light); }
+.drop-zone h2 { font-family: var(--font-d); font-size: 20px; margin-bottom: 8px; }
+.drop-zone p { color: var(--text-3); font-size: 13.5px; margin-bottom: 20px; line-height: 1.5; }
+.upload-btn {
+  background: var(--primary); color: #fff; border: none; border-radius: 24px;
+  padding: 10px 26px; font-size: 14px; cursor: pointer; font-family: var(--font-b);
+  transition: all 0.2s;
+}
+.upload-btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
+#file-input { display: none; }
+
+/* ── App ── */
+#app { display: none; height: 100%; flex-direction: row; }
+#app.on { display: flex; }
+
+/* ── Sidebar ── */
+#sidebar {
+  width: 290px; min-width: 220px; max-width: 380px;
+  background: var(--surface); border-right: 1px solid var(--sand);
+  display: flex; flex-direction: column; height: 100%; flex-shrink: 0;
+}
+.sidebar-head { padding: 18px 14px 12px; border-bottom: 1px solid var(--sand); flex-shrink: 0; }
+.sidebar-logo { font-family: var(--font-d); font-size: 17px; margin-bottom: 12px; color: var(--text); }
+.sidebar-logo span { color: var(--primary); }
+.sb-search {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--bg); border: 1px solid var(--sand); border-radius: 8px; padding: 7px 10px;
+}
+.sb-search input { border: none; background: transparent; outline: none; font-size: 13px; color: var(--text); width: 100%; font-family: var(--font-b); }
+.sb-search input::placeholder { color: var(--text-3); }
+#conv-count { font-size: 12px; color: var(--text-3); padding: 8px 14px 4px; }
+#conv-list { flex: 1; overflow-y: auto; }
+.conv-item {
+  padding: 11px 14px; cursor: pointer; border-bottom: 1px solid rgba(232,221,211,0.5);
+  transition: background 0.15s; display: flex; flex-direction: column; gap: 3px;
+}
+.conv-item:hover { background: var(--primary-light); }
+.conv-item.active { background: var(--primary-light); border-left: 3px solid var(--primary); padding-left: 11px; }
+.conv-name { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-meta { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-3); }
+
+/* ── Main ── */
+#main { flex: 1; display: flex; flex-direction: column; height: 100%; overflow: hidden; min-width: 0; }
+
+/* ── Msg Header ── */
+#msg-header {
+  padding: 0 16px; height: 54px; background: var(--surface);
+  border-bottom: 1px solid var(--sand); display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.hdr-btn { background: none; border: none; color: var(--text-3); cursor: pointer; font-size: 18px; padding: 4px 6px; border-radius: 6px; line-height: 1; }
+.hdr-btn:hover { color: var(--primary); background: var(--primary-light); }
+#conv-title { font-family: var(--font-d); font-size: 15.5px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+
+/* ── Search bar (inline) ── */
+#search-wrap { display: none; align-items: center; gap: 7px; background: var(--bg); border: 1px solid var(--sand); border-radius: 8px; padding: 5px 10px; }
+#search-wrap.on { display: flex; }
+#search-input { border: none; background: transparent; outline: none; font-size: 13px; color: var(--text); width: 160px; font-family: var(--font-b); }
+#search-count { font-size: 12px; color: var(--text-3); white-space: nowrap; min-width: 44px; }
+.snav { background: none; border: none; color: var(--text-3); cursor: pointer; padding: 2px 5px; border-radius: 4px; font-size: 13px; }
+.snav:hover { color: var(--primary); background: var(--primary-light); }
+
+/* ── Message Container ── */
+#msg-wrap { flex: 1; overflow-y: auto; position: relative; }
+
+/* ── Empty state ── */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--text-3); gap: 12px;
+}
+.empty-icon { font-size: 38px; opacity: 0.4; }
+
+/* ── Message rows ── */
+.msg-row { display: flex; padding: 5px 20px; gap: 10px; }
+.msg-row.human { flex-direction: row-reverse; }
+.msg-avatar {
+  width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 6px;
+}
+.human .msg-avatar { background: var(--primary-light); color: var(--primary-dark); }
+.assistant .msg-avatar { background: var(--sand); color: var(--text-2); }
+.msg-body { max-width: 70%; display: flex; flex-direction: column; gap: 4px; }
+.msg-time { font-size: 11px; color: var(--text-3); }
+.human .msg-time { text-align: right; }
+
+/* ── Bubbles ── */
+.msg-bubble { padding: 10px 14px; border-radius: 16px; font-size: 14.5px; line-height: 1.7; word-break: break-word; }
+.human .msg-bubble { background: var(--primary-light); border-top-right-radius: 4px; }
+.assistant .msg-bubble { background: var(--surface); border: 1px solid rgba(232,221,211,0.9); box-shadow: 0 1px 8px var(--shadow); border-top-left-radius: 4px; }
+
+/* Markdown in bubbles */
+.msg-bubble p { margin-bottom: 8px; }
+.msg-bubble p:last-child { margin-bottom: 0; }
+.msg-bubble ul, .msg-bubble ol { margin: 6px 0 6px 20px; }
+.msg-bubble li { margin-bottom: 3px; }
+.msg-bubble h1,.msg-bubble h2,.msg-bubble h3 { font-family: var(--font-d); margin: 12px 0 6px; line-height: 1.3; }
+.msg-bubble code { background: rgba(0,0,0,0.07); border-radius: 4px; padding: 1px 5px; font-family: var(--font-m); font-size: 13px; }
+.msg-bubble pre { background: #1e1e2e; color: #cdd6f4; border-radius: 10px; padding: 14px; overflow-x: auto; margin: 8px 0; }
+.msg-bubble pre code { background: none; padding: 0; color: inherit; font-size: 13px; }
+.msg-bubble blockquote { border-left: 3px solid var(--primary); margin: 8px 0; padding: 4px 12px; color: var(--text-2); font-style: italic; }
+.msg-bubble table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+.msg-bubble th, .msg-bubble td { border: 1px solid var(--sand); padding: 6px 10px; }
+.msg-bubble th { background: var(--bg); font-weight: 600; }
+.msg-bubble a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.msg-bubble hr { border: none; border-top: 1px solid var(--sand); margin: 10px 0; }
+
+/* ── Thinking block ── */
+.thinking-block { margin-bottom: 5px; border: 1px solid var(--sand); border-radius: 10px; overflow: hidden; }
+.thinking-tog {
+  display: flex; align-items: center; gap: 6px; padding: 7px 11px;
+  background: var(--bg); cursor: pointer; color: var(--text-3); user-select: none; font-size: 12.5px;
+  transition: background 0.15s;
+}
+.thinking-tog:hover { background: var(--sand); color: var(--text-2); }
+.tok-arrow { font-size: 9px; transition: transform 0.2s; display: inline-block; }
+.thinking-tog.open .tok-arrow { transform: rotate(90deg); }
+.thinking-body {
+  display: none; padding: 10px 13px; background: var(--bg);
+  color: var(--text-2); line-height: 1.6; font-size: 13px;
+  white-space: pre-wrap; word-break: break-word; border-top: 1px solid var(--sand);
+}
+.thinking-body.open { display: block; }
+
+/* ── Tool call indicator ── */
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+  color: var(--text-3); background: var(--bg); border: 1px solid var(--sand);
+  border-radius: 6px; padding: 3px 8px; margin: 3px 0;
+}
+
+/* ── Search highlight ── */
+mark.hl { background: rgba(217,119,87,0.22); border-radius: 2px; padding: 0 1px; color: inherit; }
+mark.hl.cur { background: rgba(217,119,87,0.55); outline: 1px solid var(--primary); }
+
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-thumb { background: var(--sand); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+</style>
+</head>
+<body>
+
+<!-- UPLOAD -->
+<div id="upload-screen">
+  <div class="upload-logo">✦ Claude 对话查看器</div>
+  <div class="drop-zone" id="drop-zone">
+    <h2>导入对话记录</h2>
+    <p>将 Claude 导出的 JSON 文件拖入此处<br>或点击按钮选择文件<br><br>全程本地运行，不上传任何数据</p>
+    <button class="upload-btn" onclick="document.getElementById('file-input').click()">选择 JSON 文件</button>
+    <input type="file" id="file-input" accept=".json">
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div id="sidebar">
+    <div class="sidebar-head">
+      <div class="sidebar-logo"><span>✦</span> 对话记录</div>
+      <div class="sb-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-3);flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="sb-q" type="text" placeholder="搜索对话名称…">
+      </div>
+    </div>
+    <div id="conv-count"></div>
+    <div id="conv-list"></div>
+  </div>
+
+  <div id="main">
+    <div id="msg-header">
+      <button class="hdr-btn" id="back-btn" onclick="goBack()" style="display:none" title="返回">←</button>
+      <span id="conv-title" style="color:var(--text-3);font-size:14px;font-family:var(--font-b);font-weight:400">← 选择一个对话</span>
+      <div id="search-wrap">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-3);flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search-input" type="text" placeholder="搜索消息…">
+        <span id="search-count"></span>
+        <button class="snav" id="prev-btn" onclick="navSearch(-1)" title="上一个">↑</button>
+        <button class="snav" id="next-btn" onclick="navSearch(1)" title="下一个">↓</button>
+        <button class="snav" onclick="closeSearch()" title="关闭">✕</button>
+      </div>
+      <button class="hdr-btn" id="search-tog" onclick="toggleSearch()" style="display:none" title="搜索">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+    </div>
+    <div id="msg-wrap">
+      <div class="empty-state"><div class="empty-icon">✦</div><div>从左侧选择一个对话</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────
+let convs = [];            // filtered, sorted conversations
+let activeIdx = -1;        // current conv index
+let activeMessages = [];   // messages of current conv
+let vScroller = null;
+
+let searchMatches = [];    // message indices that match
+let searchCur = -1;
+
+// ── Utilities ──────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderMd(text) {
+  if (!text) return '';
+  try { return marked.parse(String(text), {breaks:true, gfm:true}); }
+  catch(e) { return esc(text); }
+}
+
+function getMsgText(msg) {
+  // Flat text for searching
+  if (msg.content && msg.content.length) {
+    return msg.content.map(c => c.text || c.thinking || '').join(' ');
+  }
+  return msg.text || '';
+}
+
+// ── File loading ───────────────────────────────────────────
+$('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) readFile(e.target.files[0]);
+});
+
+const dz = $('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+});
+
+function readFile(file) {
+  const r = new FileReader();
+  r.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      boot(Array.isArray(data) ? data : [data]);
+    } catch(err) {
+      alert('解析失败，请确认是 Claude 导出的 JSON 文件。\n' + err.message);
+    }
+  };
+  r.readAsText(file, 'utf-8');
+}
+
+// ── Boot ───────────────────────────────────────────────────
+function boot(raw) {
+  convs = raw
+    .filter(c => c.chat_messages && c.chat_messages.length > 0)
+    .sort((a,b) => new Date(b.updated_at||0) - new Date(a.updated_at||0));
+
+  $('upload-screen').style.display = 'none';
+  $('app').classList.add('on');
+  renderConvList();
+}
+
+// ── Conversation list ──────────────────────────────────────
+function renderConvList(q = '') {
+  const list = $('conv-list');
+  list.innerHTML = '';
+  const ql = q.toLowerCase();
+  let shown = 0;
+
+  convs.forEach((c, idx) => {
+    const name = c.name || '(无标题)';
+    if (ql && !name.toLowerCase().includes(ql)) return;
+    shown++;
+    const el = document.createElement('div');
+    el.className = 'conv-item' + (idx === activeIdx ? ' active' : '');
+    el.innerHTML = `
+      <div class="conv-name">${esc(name)}</div>
+      <div class="conv-meta">
+        <span>${c.chat_messages.length} 条消息</span>
+        <span>${fmtDate(c.updated_at)}</span>
+      </div>`;
+    el.addEventListener('click', () => openConv(idx));
+    list.appendChild(el);
+  });
+
+  $('conv-count').textContent = `${shown} 个对话`;
+}
+
+$('sb-q').addEventListener('input', e => renderConvList(e.target.value));
+
+// ── Open conversation ──────────────────────────────────────
+function openConv(idx) {
+  activeIdx = idx;
+  renderConvList($('sb-q').value);
+  closeSearch();
+
+  const conv = convs[idx];
+  const title = $('conv-title');
+  title.textContent = conv.name || '(无标题)';
+  title.style.cssText = '';  // restore bold serif style
+  $('back-btn').style.display = 'block';
+  $('search-tog').style.display = 'block';
+
+  // Filter to displayable messages only
+  activeMessages = conv.chat_messages.filter(m =>
+    m.text || (m.content && m.content.some(c => ['text','thinking'].includes(c.type)))
+  );
+
+  const wrap = $('msg-wrap');
+  wrap.innerHTML = '';
+
+  if (activeMessages.length === 0) {
+    wrap.innerHTML = '<div class="empty-state"><div class="empty-icon">✦</div><div>此对话无可显示的消息</div></div>';
+    return;
+  }
+
+  vScroller = new VList(wrap, activeMessages, buildMsgRow);
+}
+
+function goBack() {
+  activeIdx = -1;
+  renderConvList($('sb-q').value);
+  $('back-btn').style.display = 'none';
+  $('search-tog').style.display = 'none';
+  const title = $('conv-title');
+  title.textContent = '← 选择一个对话';
+  title.style.cssText = 'color:var(--text-3);font-size:14px;font-family:var(--font-b);font-weight:400';
+  $('msg-wrap').innerHTML = '<div class="empty-state"><div class="empty-icon">✦</div><div>从左侧选择一个对话</div></div>';
+  closeSearch();
+}
+
+// ── Message rendering ──────────────────────────────────────
+function buildMsgRow(msg, idx) {
+  const isHuman = msg.sender === 'human';
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + (isHuman ? 'human' : 'assistant');
+  row.dataset.msgIdx = idx;
+
+  const av = document.createElement('div');
+  av.className = 'msg-avatar';
+  av.textContent = isHuman ? '我' : '✦';
+
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+
+  const time = document.createElement('div');
+  time.className = 'msg-time';
+  time.textContent = fmtDate(msg.created_at);
+  body.appendChild(time);
+
+  if (isHuman) {
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.innerHTML = buildHumanHtml(msg);
+    body.appendChild(bubble);
+  } else {
+    // Thinking blocks (before main response)
+    buildThinking(msg).forEach(t => body.appendChild(t));
+
+    // Text + tool chips
+    const html = buildAssistantHtml(msg);
+    if (html) {
+      const bubble = document.createElement('div');
+      bubble.className = 'msg-bubble';
+      bubble.innerHTML = html;
+      body.appendChild(bubble);
+    }
+  }
+
+  row.appendChild(av);
+  row.appendChild(body);
+  return row;
+}
+
+function buildHumanHtml(msg) {
+  const parts = [];
+  if (msg.content && msg.content.length) {
+    msg.content.forEach(c => { if (c.type === 'text') parts.push(renderMd(c.text)); });
+  }
+  if (!parts.length && msg.text) parts.push(renderMd(msg.text));
+  return parts.join('');
+}
+
+function buildAssistantHtml(msg) {
+  const parts = [];
+  if (msg.content && msg.content.length) {
+    msg.content.forEach(c => {
+      if (c.type === 'text') {
+        parts.push(renderMd(c.text));
+      } else if (c.type === 'tool_use') {
+        parts.push(`<div class="tool-chip">⚙ ${esc(c.name || '工具调用')}</div>`);
+      }
+    });
+  }
+  if (!parts.length && msg.text) parts.push(renderMd(msg.text));
+  return parts.join('');
+}
+
+function buildThinking(msg) {
+  const blocks = [];
+  if (!msg.content) return blocks;
+  msg.content.forEach(c => {
+    if (c.type !== 'thinking' || !c.thinking) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'thinking-block';
+
+    const tog = document.createElement('div');
+    tog.className = 'thinking-tog';
+    tog.innerHTML = '<span class="tok-arrow">▶</span> 思考过程';
+
+    const body = document.createElement('div');
+    body.className = 'thinking-body';
+    body.textContent = c.thinking;
+
+    tog.addEventListener('click', () => {
+      const open = body.classList.toggle('open');
+      tog.classList.toggle('open', open);
+    });
+
+    wrap.appendChild(tog);
+    wrap.appendChild(body);
+    blocks.push(wrap);
+  });
+  return blocks;
+}
+
+// ── Virtual List ───────────────────────────────────────────
+class VList {
+  constructor(container, items, renderFn) {
+    this.C = container;
+    this.items = items;
+    this.renderFn = renderFn;
+    this.EST = 130;       // estimated px per message
+    this.BUF = 8;         // overscan
+    this.heights = new Array(items.length).fill(this.EST);
+    this.DOM = new Map();  // idx → el
+
+    container.style.position = 'relative';
+    this.padT = el('div');
+    this.padB = el('div');
+    container.append(this.padT, this.padB);
+
+    this._raf = null;
+    container.addEventListener('scroll', () => this._kick(), {passive:true});
+    this._update();
+  }
+
+  _sum(a, b) { let s=0; for (let i=a;i<b;i++) s+=this.heights[i]; return s; }
+
+  _findIdx(y) {
+    let acc=0;
+    for (let i=0;i<this.items.length;i++) {
+      if (acc+this.heights[i]>y) return i;
+      acc+=this.heights[i];
+    }
+    return Math.max(0,this.items.length-1);
+  }
+
+  _kick() {
+    if (!this._raf) this._raf = requestAnimationFrame(()=>{ this._update(); this._raf=null; });
+  }
+
+  _update() {
+    const st=this.C.scrollTop, vh=this.C.clientHeight;
+    if (!vh) { requestAnimationFrame(()=>this._update()); return; }
+
+    const vs=this._findIdx(st), ve=this._findIdx(st+vh);
+    const rs=Math.max(0,vs-this.BUF), re=Math.min(this.items.length-1,ve+this.BUF);
+
+    // Remove out-of-range
+    for (const [i,e] of this.DOM) {
+      if (i<rs||i>re) { e.remove(); this.DOM.delete(i); }
+    }
+
+    // Add missing
+    for (let i=rs;i<=re;i++) {
+      if (this.DOM.has(i)) continue;
+      const e = this.renderFn(this.items[i], i);
+      // Find next rendered anchor
+      let ref = this.padB;
+      for (let j=i+1;j<=re;j++) { if (this.DOM.has(j)){ref=this.DOM.get(j);break;} }
+      this.C.insertBefore(e, ref);
+      this.DOM.set(i, e);
+      requestAnimationFrame(()=>{
+        const h=e.getBoundingClientRect().height;
+        if (h>0){ this.heights[i]=h; this._pads(); }
+      });
+    }
+    this._pads();
+  }
+
+  _pads() {
+    let mn=this.items.length, mx=-1;
+    for (const i of this.DOM.keys()) { if(i<mn)mn=i; if(i>mx)mx=i; }
+    if (mx===-1) { mn=0; }
+    this.padT.style.height = this._sum(0, Math.max(0,mn)) + 'px';
+    this.padB.style.height = this._sum(Math.min(this.items.length,mx+1), this.items.length) + 'px';
+  }
+
+  scrollToIdx(idx) {
+    this.C.scrollTop = this._sum(0, idx);
+    setTimeout(()=>this._update(), 120);
+  }
+}
+
+function el(tag, cls) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  return e;
+}
+
+// ── Search ─────────────────────────────────────────────────
+function toggleSearch() {
+  const w = $('search-wrap');
+  if (w.classList.contains('on')) { closeSearch(); return; }
+  w.classList.add('on');
+  $('search-input').focus();
+}
+
+function closeSearch() {
+  $('search-wrap').classList.remove('on');
+  $('search-input').value = '';
+  $('search-count').textContent = '';
+  clearHL();
+  searchMatches = [];
+  searchCur = -1;
+}
+
+$('search-input').addEventListener('input', e => doSearch(e.target.value.trim()));
+$('search-input').addEventListener('keydown', e => {
+  if (e.key==='Enter') navSearch(e.shiftKey?-1:1);
+  if (e.key==='Escape') closeSearch();
+});
+
+function doSearch(q) {
+  clearHL();
+  searchMatches = [];
+  searchCur = -1;
+  $('search-count').textContent = '';
+  if (!q || activeIdx<0) return;
+
+  const ql = q.toLowerCase();
+  activeMessages.forEach((m, i) => {
+    if (getMsgText(m).toLowerCase().includes(ql)) searchMatches.push(i);
+  });
+
+  $('search-count').textContent = searchMatches.length ? `0/${searchMatches.length}` : '无结果';
+  if (searchMatches.length) { searchCur=0; gotoMatch(0); }
+}
+
+function navSearch(dir) {
+  if (!searchMatches.length) return;
+  searchCur = (searchCur+dir+searchMatches.length) % searchMatches.length;
+  gotoMatch(searchCur);
+}
+
+function gotoMatch(cur) {
+  const msgIdx = searchMatches[cur];
+  if (vScroller) vScroller.scrollToIdx(msgIdx);
+  setTimeout(()=>{
+    applyHL($('search-input').value.trim());
+    const row = $('msg-wrap').querySelector(`.msg-row[data-msg-idx="${msgIdx}"]`);
+    if (row) row.querySelectorAll('mark.hl').forEach(m=>m.classList.add('cur'));
+    $('search-count').textContent = `${cur+1}/${searchMatches.length}`;
+  }, 160);
+}
+
+function applyHL(q) {
+  clearHL();
+  if (!q) return;
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi');
+  $('msg-wrap').querySelectorAll('.msg-bubble, .thinking-body').forEach(el => {
+    walkAndHL(el, re);
+    re.lastIndex = 0;
+  });
+}
+
+function walkAndHL(root, re) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    const t = node.textContent;
+    re.lastIndex = 0;
+    if (!re.test(t)) return;
+    re.lastIndex = 0;
+    const frag = document.createDocumentFragment();
+    let last=0, m;
+    while ((m=re.exec(t))!==null) {
+      if (m.index>last) frag.appendChild(document.createTextNode(t.slice(last,m.index)));
+      const mk = document.createElement('mark');
+      mk.className='hl'; mk.textContent=m[0];
+      frag.appendChild(mk);
+      last=m.index+m[0].length;
+    }
+    if (last<t.length) frag.appendChild(document.createTextNode(t.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  });
+}
+
+function clearHL() {
+  document.querySelectorAll('mark.hl').forEach(m => m.replaceWith(document.createTextNode(m.textContent)));
+}
+</script>
+</body>
+</html>
