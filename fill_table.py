@@ -142,6 +142,7 @@ def fill_doc(docx_path: str, fills: list, output_path: str, overwrite: bool = Fa
             run = para.add_run(line)
             if template_run is not None:
                 _copy_run_format(template_run, run)
+            run.font.bold = False  # 填写内容一律不加粗
 
     doc.save(output_path)
     print(f"[完成] 已保存到 {output_path}")
