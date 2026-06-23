@@ -75,6 +75,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .conv-item.active { background: var(--primary-light); border-left: 3px solid var(--primary); padding-left: 11px; }
 .conv-name { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv-meta { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-3); }
+.search-snippet { font-size: 11.5px; color: var(--text-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.search-snippet mark.hl { background: rgba(217,119,87,0.3); border-radius: 2px; color: inherit; padding: 0 1px; }
+.sb-sep { font-size: 11px; color: var(--text-3); padding: 6px 14px 2px; border-top: 1px solid var(--sand); }
 
 /* ── Main ── */
 #main { flex: 1; display: flex; flex-direction: column; height: 100%; overflow: hidden; min-width: 0; }
@@ -302,43 +305,134 @@ function readFile(file) {
 }
 
 // ── Boot ───────────────────────────────────────────────────
+function hasDisplayable(c) {
+  return c.chat_messages && c.chat_messages.some(m =>
+    (m.text && m.text.trim()) ||
+    (m.content && m.content.some(ct =>
+      (ct.type === 'text' && ct.text && ct.text.trim()) ||
+      (ct.type === 'thinking' && ct.thinking && ct.thinking.trim())
+    ))
+  );
+}
+
+let searchIdx = [];
+
+function buildSearchIdx() {
+  searchIdx = [];
+  convs.forEach((c, convIdx) => {
+    const displayable = c.chat_messages.filter(m =>
+      m.text || (m.content && m.content.some(ct => ['text','thinking'].includes(ct.type)))
+    );
+    displayable.forEach((m, msgIdx) => {
+      const raw = getMsgText(m);
+      if (raw.trim()) searchIdx.push({ convIdx, msgIdx, low: raw.toLowerCase(), raw, convName: c.name || '(无标题)' });
+    });
+  });
+}
+
 function boot(raw) {
   convs = raw
-    .filter(c => c.chat_messages && c.chat_messages.length > 0)
+    .filter(hasDisplayable)
     .sort((a,b) => new Date(b.updated_at||0) - new Date(a.updated_at||0));
 
   $('upload-screen').style.display = 'none';
   $('app').classList.add('on');
+  buildSearchIdx();
   renderConvList();
 }
 
 // ── Conversation list ──────────────────────────────────────
+function makeConvItem(c, idx) {
+  const el = document.createElement('div');
+  el.className = 'conv-item' + (idx === activeIdx ? ' active' : '');
+  el.innerHTML = `
+    <div class="conv-name">${esc(c.name || '(无标题)')}</div>
+    <div class="conv-meta">
+      <span>${c.chat_messages.length} 条消息</span>
+      <span>${fmtDate(c.updated_at)}</span>
+    </div>`;
+  el.addEventListener('click', () => openConv(idx));
+  return el;
+}
+
+let _sbTimer = null;
+
 function renderConvList(q = '') {
   const list = $('conv-list');
   list.innerHTML = '';
-  const ql = q.toLowerCase();
-  let shown = 0;
+  const ql = q.trim().toLowerCase();
 
-  convs.forEach((c, idx) => {
-    const name = c.name || '(无标题)';
-    if (ql && !name.toLowerCase().includes(ql)) return;
-    shown++;
-    const el = document.createElement('div');
-    el.className = 'conv-item' + (idx === activeIdx ? ' active' : '');
-    el.innerHTML = `
-      <div class="conv-name">${esc(name)}</div>
-      <div class="conv-meta">
-        <span>${c.chat_messages.length} 条消息</span>
-        <span>${fmtDate(c.updated_at)}</span>
-      </div>`;
-    el.addEventListener('click', () => openConv(idx));
-    list.appendChild(el);
-  });
+  if (!ql) {
+    convs.forEach((c, idx) => list.appendChild(makeConvItem(c, idx)));
+    $('conv-count').textContent = `${convs.length} 个对话`;
+    return;
+  }
 
-  $('conv-count').textContent = `${shown} 个对话`;
+  // Name matches
+  const nameHits = convs
+    .map((c, idx) => ({ c, idx }))
+    .filter(({ c }) => (c.name || '').toLowerCase().includes(ql));
+
+  // Content matches (2+ chars)
+  const contentHits = [];
+  if (ql.length >= 2) {
+    const nameConvIdxs = new Set(nameHits.map(h => h.idx));
+    const seen = new Set();
+    searchIdx.forEach(entry => {
+      const pos = entry.low.indexOf(ql);
+      if (pos === -1) return;
+      const key = `${entry.convIdx}|${entry.msgIdx}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (nameConvIdxs.has(entry.convIdx)) return; // already in name results
+      const s = Math.max(0, pos - 20), e = Math.min(entry.raw.length, pos + ql.length + 55);
+      const snip = (s > 0 ? '…' : '') + entry.raw.slice(s, e) + (e < entry.raw.length ? '…' : '');
+      contentHits.push({ ...entry, snip });
+    });
+  }
+
+  const reQ = new RegExp(ql.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+
+  nameHits.forEach(({ c, idx }) => list.appendChild(makeConvItem(c, idx)));
+
+  if (contentHits.length) {
+    if (nameHits.length) {
+      const sep = document.createElement('div');
+      sep.className = 'sb-sep';
+      sep.textContent = '内容匹配';
+      list.appendChild(sep);
+    }
+    contentHits.slice(0, 60).forEach(r => {
+      const el = document.createElement('div');
+      el.className = 'conv-item' + (r.convIdx === activeIdx ? ' active' : '');
+      const snipHtml = esc(r.snip).replace(reQ, m => `<mark class="hl">${m}</mark>`);
+      reQ.lastIndex = 0;
+      el.innerHTML = `<div class="conv-name">${esc(r.convName)}</div><div class="search-snippet">${snipHtml}</div>`;
+      el.addEventListener('click', () => {
+        openConv(r.convIdx);
+        const target = r.msgIdx;
+        setTimeout(() => {
+          if (vScroller) vScroller.scrollToIdx(target);
+          setTimeout(() => {
+            applyHL($('sb-q').value.trim());
+            const row = $('msg-wrap').querySelector(`.msg-row[data-msg-idx="${target}"]`);
+            if (row) row.querySelectorAll('mark.hl').forEach(m => m.classList.add('cur'));
+          }, 200);
+        }, 300);
+      });
+      list.appendChild(el);
+    });
+  }
+
+  const total = nameHits.length + contentHits.length;
+  $('conv-count').textContent = total ? `找到 ${total} 个结果` : '无匹配';
+  if (!total) list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3);font-size:13px">未找到</div>';
 }
 
-$('sb-q').addEventListener('input', e => renderConvList(e.target.value));
+$('sb-q').addEventListener('input', e => {
+  clearTimeout(_sbTimer);
+  _sbTimer = setTimeout(() => renderConvList(e.target.value), 250);
+});
 
 // ── Open conversation ──────────────────────────────────────
 function openConv(idx) {
