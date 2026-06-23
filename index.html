@@ -172,6 +172,18 @@ mark.hl.cur { background: rgba(217,119,87,0.55); outline: 1px solid var(--primar
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-thumb { background: var(--sand); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  #sidebar { width: 100%; min-width: unset; max-width: unset; }
+  #main { display: none; }
+  #app.conv-open #sidebar { display: none; }
+  #app.conv-open #main { display: flex; }
+  .msg-body { max-width: 88%; }
+  .drop-zone { padding: 36px 24px; }
+  .msg-row { padding: 5px 12px; }
+  #msg-header { padding: 0 12px; }
+}
 </style>
 </head>
 <body>
@@ -328,6 +340,7 @@ function openConv(idx) {
   title.style.cssText = '';
   $('back-btn').style.display = 'block';
   $('search-tog').style.display = 'block';
+  $('app').classList.add('conv-open');
   activeMessages = conv.chat_messages.filter(m =>
     m.text || (m.content && m.content.some(c => ['text','thinking'].includes(c.type)))
   );
@@ -345,6 +358,7 @@ function goBack() {
   renderConvList($('sb-q').value);
   $('back-btn').style.display = 'none';
   $('search-tog').style.display = 'none';
+  $('app').classList.remove('conv-open');
   const title = $('conv-title');
   title.textContent = '← 选择一个对话';
   title.style.cssText = 'color:var(--text-3);font-size:14px;font-family:var(--font-b);font-weight:400';
