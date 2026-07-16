@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
+const { PDFParse } = require('pdf-parse');
 const Anthropic = require('@anthropic-ai/sdk');
 
 process.on('unhandledRejection', (reason) => {
@@ -116,6 +117,35 @@ app.get('/api/debug-chat', async (req, res) => {
 
 app.get('/api/config', (req, res) => {
   res.json({ ttsProvider: MINIMAX_READY ? 'minimax' : 'browser' });
+});
+
+app.post('/api/extract-text', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: '没收到文件' });
+    return;
+  }
+
+  const name = req.file.originalname || '';
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+
+  try {
+    let text;
+    if (ext === '.pdf') {
+      const parser = new PDFParse({ data: req.file.buffer });
+      const result = await parser.getText();
+      await parser.destroy();
+      text = result.text;
+    } else if (ext === '.md' || ext === '.txt') {
+      text = req.file.buffer.toString('utf-8');
+    } else {
+      res.status(400).json({ error: '只支持 .md / .txt / .pdf' });
+      return;
+    }
+    res.json({ ok: true, filename: name, text: (text || '').trim() });
+  } catch (err) {
+    console.error('/api/extract-text error:', err);
+    res.status(500).json({ error: '解析失败: ' + err.message });
+  }
 });
 
 app.post('/api/tts', async (req, res) => {

@@ -9,6 +9,8 @@ const voiceSelectEl = document.getElementById('voiceSelect');
 const micBtn = document.getElementById('micBtn');
 const textInput = document.getElementById('textInput');
 const sendBtn = document.getElementById('sendBtn');
+const docUpload = document.getElementById('docUpload');
+const docUploadStatus = document.getElementById('docUploadStatus');
 
 const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -54,6 +56,37 @@ voiceSelectEl.addEventListener('change', () => {
 
 settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
 closeSettings.addEventListener('click', () => settingsPanel.classList.add('hidden'));
+
+const SYSTEM_PROMPT_KEY = 'suyan_system_prompt';
+const savedPrompt = localStorage.getItem(SYSTEM_PROMPT_KEY);
+if (savedPrompt) systemPromptEl.value = savedPrompt;
+systemPromptEl.addEventListener('input', () => {
+  localStorage.setItem(SYSTEM_PROMPT_KEY, systemPromptEl.value);
+});
+
+docUpload.addEventListener('change', async () => {
+  const files = Array.from(docUpload.files || []);
+  if (!files.length) return;
+
+  for (const file of files) {
+    docUploadStatus.textContent = `正在导入 ${file.name}...`;
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/extract-text', { method: 'POST', body: form });
+      const body = await res.json();
+      if (!res.ok || !body.ok) throw new Error(body.error || '导入失败');
+
+      const sep = systemPromptEl.value.trim() ? '\n\n' : '';
+      systemPromptEl.value += `${sep}--- ${body.filename} ---\n${body.text}`;
+      localStorage.setItem(SYSTEM_PROMPT_KEY, systemPromptEl.value);
+      docUploadStatus.textContent = `已导入 ${file.name}(${body.text.length} 字)`;
+    } catch (err) {
+      docUploadStatus.textContent = `${file.name} 导入失败: ${err.message}`;
+    }
+  }
+  docUpload.value = '';
+});
 
 function appendBubble(role, text) {
   const div = document.createElement('div');

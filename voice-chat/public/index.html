@@ -2,20 +2,34 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>聊天 · Claude</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>苏晏</title>
+
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="苏晏">
+<meta name="theme-color" content="#16213e">
+
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app">
     <header>
-      <h1>聊天</h1>
+      <h1>苏晏</h1>
       <button id="settingsBtn" class="icon-btn" title="设置">⚙</button>
     </header>
 
     <div id="settingsPanel" class="settings-panel hidden">
-      <label>System Prompt(可留空)</label>
-      <textarea id="systemPrompt" rows="4" placeholder="给 Claude 的角色设定,可留空"></textarea>
+      <label>System Prompt / 身份设定(会自动保存在本机)</label>
+      <textarea id="systemPrompt" rows="6" placeholder="给 TA 的角色设定,可留空;也可以用下面的导入按钮从文件里拼进来"></textarea>
+
+      <label>导入背景资料(md / txt / pdf,会追加到上面)</label>
+      <input type="file" id="docUpload" accept=".md,.txt,.pdf" multiple>
+      <div id="docUploadStatus" class="doc-status"></div>
+
       <label>语音识别语言</label>
       <select id="sttLang">
         <option value="zh-CN">中文</option>
