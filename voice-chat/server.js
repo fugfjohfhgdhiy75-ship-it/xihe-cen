@@ -41,10 +41,12 @@ const supabase = SUPABASE_READY ? createClient(SUPABASE_URL, SUPABASE_KEY) : nul
 
 const IMAGE_BUCKET = 'chat-images';
 if (SUPABASE_READY) {
-  supabase.storage.createBucket(IMAGE_BUCKET, { public: true }).catch((err) => {
-    if (!String(err && err.message).includes('already exists')) {
-      console.error('createBucket error:', err);
+  supabase.storage.createBucket(IMAGE_BUCKET, { public: true }).then(({ error }) => {
+    if (error && !String(error.message).toLowerCase().includes('already exists')) {
+      console.error('createBucket error:', error.message);
     }
+  }).catch((err) => {
+    console.error('createBucket threw:', err);
   });
 }
 
