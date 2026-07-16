@@ -24,6 +24,29 @@ const anthropic = new Anthropic({
 });
 const MODEL = process.env.MODEL || 'claude-sonnet-5';
 
+// Relays (中转站) are noticeably less stable than the official API — a
+// request can time out or the connection can drop entirely on their side,
+// after they've already billed for it, with nothing ever making it back to
+// us. A short retry gives a second (and third) chance at hitting a healthy
+// connection instead of failing the whole turn on one bad attempt. This
+// can't fix relay instability itself, and in the worst case a request that
+// silently succeeded-but-never-returned on attempt 1 then succeeds again on
+// a retry means two billed calls for one turn — but leaving the user with
+// nothing after being charged once is worse than that.
+async function createMessageWithRetry(params, retries = 2) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err) {
+      lastErr = err;
+      console.error(`anthropic.messages.create attempt ${attempt + 1}/${retries + 1} failed:`, err.message);
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 const MINIMAX_API_HOST = process.env.MINIMAX_API_HOST || 'https://api.minimax.io';
 const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
 const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID;
@@ -331,7 +354,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       }
     }
 
-    const claudeMessage = await anthropic.messages.create({
+    const claudeMessage = await createMessageWithRetry({
       model: MODEL,
       max_tokens: 1024,
       system,
