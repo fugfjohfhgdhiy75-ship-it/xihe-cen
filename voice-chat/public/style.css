@@ -16,7 +16,6 @@
   --text: #24344c;
   --text-dim: rgba(36,52,76,0.6);
   --border: rgba(255,255,255,0.55);
-  --dock-h: 92px;
 }
 
 html, body {
@@ -269,7 +268,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 10px 2px calc(var(--dock-h) + 16px);
+  padding: 10px 2px 6px;
 }
 
 .bubble {
@@ -390,19 +389,9 @@ h1 {
   margin-bottom: 4px;
 }
 
-/* Fixed dock: anchored to the viewport bottom independent of the .app flex
-   column, and repositioned via JS using visualViewport so the on-screen
-   keyboard pushes it up smoothly instead of the whole layout jumping. */
 .composer-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 0 16px calc(env(safe-area-inset-bottom) + 10px);
-  will-change: transform;
+  flex: none;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 10px);
 }
 
 .image-preview {

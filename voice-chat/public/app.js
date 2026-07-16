@@ -4,44 +4,48 @@ const setupNotice = document.getElementById('setupNotice');
 const sessionTitle = document.getElementById('sessionTitle');
 
 // iOS Safari never shrinks the layout viewport for the on-screen keyboard —
-// it just overlays it — so a normal "flex column, composer at the bottom"
-// layout gets covered. Instead the composer dock is `position: fixed` to
-// the viewport (see style.css .composer-dock) and JS slides it up by
-// exactly the keyboard's height using window.visualViewport, which DOES
-// track the keyboard.
+// it just overlays it. The previous approach kept the composer at
+// `position: fixed` and tried to compute how far to translateY it up by
+// diffing visualViewport against a guessed "no keyboard" baseline — that
+// math had edge cases (still visible as a gap between the composer and the
+// keyboard in testing) and was fighting the browser instead of just
+// reading its actual state.
 //
-// window.innerHeight is NOT a safe "no keyboard" baseline on iOS: it stays
-// pinned to the tallest (URL-bar-hidden) size, while visualViewport.height
-// also shrinks by ~50-100px whenever Safari's address bar is showing, with
-// no keyboard involved at all. Comparing against innerHeight counted that
-// address-bar chrome as "keyboard" and shoved the dock up too far, leaving
-// the gap you saw above the keyboard. Instead track the tallest
-// visualViewport height seen recently as the baseline, and only treat a
-// *large* drop from it (bigger than any plausible address-bar change) as
-// the keyboard opening.
-const composerDock = document.getElementById('composerDock');
-const KEYBOARD_THRESHOLD = 150;
-let vvBaseline = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-
-function syncComposerDock() {
-  if (!composerDock || !window.visualViewport) return;
-  const vv = window.visualViewport;
-  const drop = vvBaseline - vv.height;
-  if (drop > KEYBOARD_THRESHOLD) {
-    const inset = Math.max(0, vvBaseline - vv.height - vv.offsetTop);
-    composerDock.style.transform = `translateY(-${inset}px)`;
-  } else {
-    vvBaseline = Math.max(vvBaseline, vv.height);
-    composerDock.style.transform = '';
-  }
-  document.documentElement.style.setProperty('--dock-h', composerDock.offsetHeight + 'px');
+// Simpler and more direct: the composer lives back in the normal flex
+// column (.app > .transcript, .composer-dock), and JS just sets `.app`'s
+// height to exactly window.visualViewport.height on every change — that
+// number already IS "however tall the visible area currently is," keyboard
+// or address bar or both, no guessing which caused it. The composer, as
+// the last flex child, naturally ends up sitting right at the bottom edge
+// of whatever's actually visible.
+const appEl = document.querySelector('.app');
+function syncAppHeight() {
+  if (!appEl || !window.visualViewport) return;
+  appEl.style.height = window.visualViewport.height + 'px';
+  // iOS sometimes scrolls the (non-scrolling) page to bring the focused
+  // input into view on its own; snap it back so our own layout is the only
+  // thing driving position.
+  window.scrollTo(0, 0);
 }
 if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', syncComposerDock);
-  window.visualViewport.addEventListener('scroll', syncComposerDock);
+  window.visualViewport.addEventListener('resize', syncAppHeight);
+  window.visualViewport.addEventListener('scroll', syncAppHeight);
 }
-window.addEventListener('load', syncComposerDock);
-syncComposerDock();
+window.addEventListener('load', syncAppHeight);
+syncAppHeight();
+
+// Belt-and-suspenders: on some iOS versions the visualViewport resize event
+// itself lags a beat behind the keyboard's open/close animation. Re-run the
+// sync a few times right after any input gains/loses focus so the layout
+// catches up even if that event was late or skipped.
+document.addEventListener('focusin', (e) => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
+});
+document.addEventListener('focusout', (e) => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
+});
 
 const sessionsBtn = document.getElementById('sessionsBtn');
 const sessionsPanel = document.getElementById('sessionsPanel');
@@ -559,7 +563,6 @@ function clearImageSelection() {
   imageInput.value = '';
   imagePreview.classList.add('hidden');
   imagePreviewImg.src = '';
-  syncComposerDock();
 }
 
 imageBtn.addEventListener('click', () => imageInput.click());
@@ -570,7 +573,6 @@ imageInput.addEventListener('change', () => {
   selectedImageFile = file;
   imagePreviewImg.src = URL.createObjectURL(file);
   imagePreview.classList.remove('hidden');
-  syncComposerDock();
 });
 
 imagePreviewRemove.addEventListener('click', clearImageSelection);
