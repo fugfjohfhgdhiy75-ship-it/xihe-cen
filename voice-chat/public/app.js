@@ -389,7 +389,13 @@ async function sendMessage(rawText) {
       statusText.textContent = '';
     }
   } catch (err) {
-    assistantBubble.textEl.textContent = '(出错了: ' + err.message + ')';
+    // The user message (and possibly the reply) may already be saved
+    // server-side even if this connection dropped — offer to reload the
+    // real state from the database instead of silently losing it or
+    // risking a duplicate send on retry.
+    assistantBubble.textEl.textContent = `(出错了: ${err.message} —— 点这条消息重新加载,看看是不是其实发出去了)`;
+    assistantBubble.el.style.cursor = 'pointer';
+    assistantBubble.el.addEventListener('click', () => selectSession(currentSessionId), { once: true });
     statusText.textContent = '';
   } finally {
     setBusy(false);
