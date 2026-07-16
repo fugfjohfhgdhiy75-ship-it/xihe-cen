@@ -91,8 +91,8 @@ app.post('/api/chat', async (req, res) => {
     });
 
     req.on('close', () => {
+      if (!ended) stream.abort();
       finish();
-      stream.abort();
     });
   } catch (err) {
     console.error('/api/chat handler error:', err);
