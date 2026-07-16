@@ -183,6 +183,21 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
   res.json(data);
 });
 
+app.patch('/api/messages/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const content = (req.body.content || '').trim();
+  if (!content) { res.status(400).json({ error: 'content is required' }); return; }
+  const { data, error } = await supabase
+    .from('messages')
+    .update({ content })
+    .eq('id', req.params.id)
+    .eq('role', 'user')
+    .select()
+    .single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
 app.get('/api/settings', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase.from('settings').select('*').eq('id', 1).maybeSingle();
@@ -240,7 +255,12 @@ app.post('/api/chat', upload.single('image'), async (req, res) => {
       imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
     }
 
-    await supabase.from('messages').insert({ session_id: sessionId, role: 'user', content: message, image_url: imageUrl });
+    const { data: insertedUserMessage } = await supabase
+      .from('messages')
+      .insert({ session_id: sessionId, role: 'user', content: message, image_url: imageUrl })
+      .select()
+      .single();
+    if (insertedUserMessage) send({ userMessageId: insertedUserMessage.id });
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
     const [{ data: history }, { data: memoryRows }, systemPrompt] = await Promise.all([

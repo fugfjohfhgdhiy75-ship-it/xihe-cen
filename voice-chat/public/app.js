@@ -277,7 +277,7 @@ async function selectSession(id) {
     const res = await fetch(`/api/sessions/${id}/messages`);
     const msgs = await res.json();
     msgs.forEach((m) => {
-      const bubble = appendBubble(m.role, m.content, m.image_url);
+      const bubble = appendBubble(m.role, m.content, m.image_url, m.id);
       if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
     });
     statusText.textContent = '';
@@ -288,7 +288,7 @@ async function selectSession(id) {
 
 // ---- Chat bubbles ----
 
-function appendBubble(role, text, imageUrl) {
+function appendBubble(role, text, imageUrl, id) {
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
 
@@ -318,9 +318,82 @@ function appendBubble(role, text, imageUrl) {
     row.appendChild(playBtn);
   }
 
+  let editBtn = null;
+  const bubble = { el: div, textEl, playBtn, id };
+  if (role === 'user') {
+    editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'edit-btn';
+    editBtn.textContent = '✎';
+    editBtn.addEventListener('click', () => startEditBubble(bubble));
+    row.appendChild(editBtn);
+  }
+  bubble.editBtn = editBtn;
+
   transcriptEl.appendChild(div);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
-  return { el: div, textEl, playBtn };
+  return bubble;
+}
+
+function startEditBubble(bubble) {
+  if (!bubble.id) {
+    statusText.textContent = '这条消息还没保存好,等一下再改';
+    return;
+  }
+  const original = bubble.textEl.textContent;
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'edit-textarea';
+  textarea.value = original;
+  bubble.textEl.replaceWith(textarea);
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+  const actions = document.createElement('div');
+  actions.className = 'edit-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'mini-btn';
+  saveBtn.textContent = '保存';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'mini-icon-btn';
+  cancelBtn.textContent = '取消';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+  textarea.after(actions);
+
+  if (bubble.editBtn) bubble.editBtn.classList.add('hidden');
+
+  function exitEdit(finalText) {
+    bubble.textEl.textContent = finalText;
+    textarea.replaceWith(bubble.textEl);
+    actions.remove();
+    if (bubble.editBtn) bubble.editBtn.classList.remove('hidden');
+  }
+
+  cancelBtn.addEventListener('click', () => exitEdit(original));
+
+  saveBtn.addEventListener('click', async () => {
+    const next = textarea.value.trim();
+    if (!next || next === original) { exitEdit(original); return; }
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/messages/${bubble.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || '保存失败');
+      }
+      exitEdit(next);
+    } catch (err) {
+      statusText.textContent = '编辑失败: ' + err.message;
+      saveBtn.disabled = false;
+    }
+  });
 }
 
 function speakBrowser(text) {
@@ -385,7 +458,7 @@ async function sendMessage(rawText) {
   if ((!text && !imageFile) || !currentSessionId) return;
 
   const localImageUrl = imageFile ? URL.createObjectURL(imageFile) : undefined;
-  appendBubble('user', text, localImageUrl);
+  const userBubble = appendBubble('user', text, localImageUrl);
   textInput.value = '';
   clearImageSelection();
   setBusy(true);
@@ -416,6 +489,9 @@ async function sendMessage(rawText) {
         if (!line.startsWith('data: ')) continue;
         const payload = JSON.parse(line.slice(6));
         if (payload.error) throw new Error(payload.error);
+        if (payload.userMessageId) {
+          userBubble.id = payload.userMessageId;
+        }
         if (payload.text) {
           fullText += payload.text;
           assistantBubble.textEl.textContent = fullText;

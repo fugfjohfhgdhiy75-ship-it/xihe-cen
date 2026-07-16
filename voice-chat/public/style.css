@@ -303,6 +303,47 @@ h1 {
   display: flex;
 }
 
+.bubble .edit-btn {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+}
+
+.edit-textarea {
+  flex: 1;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.4);
+  border-radius: 12px;
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 40px;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.edit-actions .mini-icon-btn {
+  color: rgba(255,255,255,0.85);
+}
+
 .image-preview {
   flex: none;
   display: flex;
