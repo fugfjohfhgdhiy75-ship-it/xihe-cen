@@ -20,6 +20,14 @@ let abortController = null;
 let pendingUtterances = 0;
 let streamDone = true;
 let selectedVoice = null;
+let ttsProvider = 'browser';
+let audioQueueTail = Promise.resolve();
+let currentAudioEl = null;
+
+const configPromise = fetch('/api/config')
+  .then((r) => r.json())
+  .then((cfg) => { ttsProvider = cfg.ttsProvider || 'browser'; })
+  .catch(() => { ttsProvider = 'browser'; });
 
 function setState(state) {
   callBtn.className = 'call-btn ' + state;
@@ -69,6 +77,14 @@ closeSettings.addEventListener('click', () => settingsPanel.classList.add('hidde
 
 function speakSentence(text) {
   if (!text.trim()) return;
+  if (ttsProvider === 'minimax') {
+    speakSentenceMinimax(text);
+  } else {
+    speakSentenceBrowser(text);
+  }
+}
+
+function speakSentenceBrowser(text) {
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = sttLangEl.value;
   if (selectedVoice) utter.voice = selectedVoice;
@@ -78,6 +94,59 @@ function speakSentence(text) {
     maybeReturnToListening();
   };
   speechSynthesis.speak(utter);
+}
+
+async function fetchMinimaxAudioUrl(text) {
+  const res = await fetch('/api/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'TTS 请求失败');
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+function playQueuedAudio(urlPromise) {
+  return urlPromise
+    .then((url) => new Promise((resolve) => {
+      const audio = new Audio(url);
+      currentAudioEl = audio;
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudioEl === audio) currentAudioEl = null;
+        resolve();
+      };
+      audio.onended = cleanup;
+      audio.onerror = cleanup;
+      audio.play().catch(cleanup);
+    }))
+    .catch((err) => {
+      statusText.textContent = 'TTS 出错: ' + err.message;
+    });
+}
+
+function speakSentenceMinimax(text) {
+  pendingUtterances++;
+  const audioPromise = fetchMinimaxAudioUrl(text);
+  audioQueueTail = audioQueueTail.then(() => playQueuedAudio(audioPromise)).finally(() => {
+    pendingUtterances--;
+    maybeReturnToListening();
+  });
+}
+
+function stopAllAudio() {
+  speechSynthesis.cancel();
+  if (currentAudioEl) {
+    currentAudioEl.pause();
+    currentAudioEl.currentTime = 0;
+    currentAudioEl = null;
+  }
+  audioQueueTail = Promise.resolve();
+  pendingUtterances = 0;
 }
 
 function maybeReturnToListening() {
@@ -189,7 +258,8 @@ async function handleUserUtterance(text) {
   }
 }
 
-function startCall() {
+async function startCall() {
+  await configPromise;
   callActive = true;
   messages = [];
   transcriptEl.innerHTML = '';
@@ -200,11 +270,10 @@ function startCall() {
 function endCall() {
   callActive = false;
   streamDone = true;
-  pendingUtterances = 0;
   if (recognition) {
     try { recognition.abort(); } catch (e) {}
   }
-  speechSynthesis.cancel();
+  stopAllAudio();
   if (abortController) abortController.abort();
   setState('idle');
 }
@@ -222,8 +291,7 @@ callBtn.addEventListener('click', () => {
 });
 
 interruptBtn.addEventListener('click', () => {
-  speechSynthesis.cancel();
-  pendingUtterances = 0;
+  stopAllAudio();
   if (abortController) abortController.abort();
   if (callActive) startListening();
 });
