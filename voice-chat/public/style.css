@@ -325,26 +325,55 @@ h1 {
   word-break: break-word;
 }
 
+.audio-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255,255,255,0.4);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 999px;
+  padding: 3px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+}
+
 .bubble .play-btn {
   flex: none;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   border: none;
-  background: rgba(255,255,255,0.35);
-  color: var(--text);
+  background: rgba(255,255,255,0.55);
+  color: #3a5a86;
   cursor: pointer;
-  font-size: 11px;
   display: none;
   align-items: center;
   justify-content: center;
 }
 
-.bubble.assistant .play-btn {
-  color: #3a5a86;
+.bubble .play-btn.ready {
+  display: flex;
 }
 
-.bubble .play-btn.ready {
+.bubble .speed-btn {
+  flex: none;
+  min-width: 30px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.bubble .speed-btn.ready {
   display: flex;
 }
 
@@ -527,6 +556,7 @@ h1 {
 }
 
 .send-btn:disabled,
-.round-btn:disabled {
+.round-btn:disabled,
+.play-btn:disabled {
   opacity: 0.45;
 }

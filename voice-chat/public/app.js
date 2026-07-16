@@ -91,6 +91,9 @@ let currentSessionId = null;
 const ttsPlayer = document.getElementById('ttsPlayer');
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
+const ICON_PLAY = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+
 function unlockAudioPlayback() {
   ttsPlayer.src = SILENT_WAV;
   ttsPlayer.play().catch(() => {});
@@ -344,16 +347,28 @@ function appendBubble(role, text, imageUrls, id) {
   row.appendChild(textEl);
 
   let playBtn = null;
+  let speedBtn = null;
   if (role === 'assistant') {
+    const audioControls = document.createElement('div');
+    audioControls.className = 'audio-controls';
+
     playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = 'play-btn';
-    playBtn.textContent = '▶';
-    row.appendChild(playBtn);
+    playBtn.innerHTML = ICON_PLAY;
+    audioControls.appendChild(playBtn);
+
+    speedBtn = document.createElement('button');
+    speedBtn.type = 'button';
+    speedBtn.className = 'speed-btn';
+    speedBtn.textContent = formatRate(playbackRate);
+    audioControls.appendChild(speedBtn);
+
+    row.appendChild(audioControls);
   }
 
   let editBtn = null;
-  const bubble = { el: div, textEl, playBtn, id };
+  const bubble = { el: div, textEl, playBtn, speedBtn, id };
   if (role === 'user') {
     editBtn = document.createElement('button');
     editBtn.type = 'button';
@@ -437,14 +452,6 @@ function speakBrowser(text) {
   speechSynthesis.speak(utter);
 }
 
-function playUrl(url) {
-  ttsPlayer.pause();
-  ttsPlayer.src = url;
-  ttsPlayer.play().catch(() => {
-    statusText.textContent = '自动播放被拦截,点一下气泡上的 ▶ 按钮';
-  });
-}
-
 async function fetchServerAudioUrl(text) {
   const res = await fetch('/api/tts', {
     method: 'POST',
@@ -467,17 +474,62 @@ function stripStageDirections(text) {
   return text.replace(/[（(][^）)]*[）)]/g, '').replace(/[ \t]+/g, ' ').trim();
 }
 
+// The whole app shares one <audio> element (needed for the iOS autoplay
+// unlock trick), so only one bubble can be "active" at a time. Pausing and
+// resuming just calls the native audio.pause()/play() — currentTime is left
+// untouched by those, so resume picks up exactly where it left off.
+let currentPlayingBubble = null;
+let playbackRate = Number(localStorage.getItem('ttsRate')) || 1;
+const PLAYBACK_RATES = [1, 1.25, 1.5, 1.75, 2];
+function formatRate(r) { return (r === 1 ? '1' : String(r)) + 'x'; }
+
+ttsPlayer.addEventListener('ended', () => {
+  if (currentPlayingBubble) currentPlayingBubble.playBtn.innerHTML = ICON_PLAY;
+  currentPlayingBubble = null;
+});
+
 function attachAudioLazy(bubble, text) {
   const spoken = stripStageDirections(text);
   bubble.playBtn.classList.add('ready');
+  bubble.speedBtn.classList.add('ready');
+  let audioUrl = null;
+
+  bubble.speedBtn.addEventListener('click', () => {
+    const next = PLAYBACK_RATES[(PLAYBACK_RATES.indexOf(playbackRate) + 1) % PLAYBACK_RATES.length];
+    playbackRate = next;
+    localStorage.setItem('ttsRate', String(next));
+    document.querySelectorAll('.speed-btn').forEach((btn) => { btn.textContent = formatRate(next); });
+    if (currentPlayingBubble) ttsPlayer.playbackRate = next;
+  });
+
   bubble.playBtn.onclick = async () => {
     if (!spoken) { statusText.textContent = '这条只有动作描写,没有可朗读的台词'; return; }
     if (ttsProvider === 'browser') { speakBrowser(spoken); return; }
+
+    if (currentPlayingBubble === bubble && !ttsPlayer.paused) {
+      ttsPlayer.pause();
+      bubble.playBtn.innerHTML = ICON_PLAY;
+      return;
+    }
+    if (currentPlayingBubble === bubble && ttsPlayer.paused && audioUrl) {
+      ttsPlayer.play();
+      bubble.playBtn.innerHTML = ICON_PAUSE;
+      return;
+    }
+
     bubble.playBtn.disabled = true;
     try {
-      const url = await fetchServerAudioUrl(spoken);
-      bubble.playBtn.onclick = () => playUrl(url);
-      playUrl(url);
+      if (!audioUrl) audioUrl = await fetchServerAudioUrl(spoken);
+      if (currentPlayingBubble && currentPlayingBubble !== bubble) {
+        currentPlayingBubble.playBtn.innerHTML = ICON_PLAY;
+      }
+      currentPlayingBubble = bubble;
+      ttsPlayer.pause();
+      ttsPlayer.src = audioUrl;
+      ttsPlayer.playbackRate = playbackRate;
+      ttsPlayer.currentTime = 0;
+      await ttsPlayer.play();
+      bubble.playBtn.innerHTML = ICON_PAUSE;
     } catch (err) {
       statusText.textContent = 'TTS 出错: ' + err.message;
     } finally {
