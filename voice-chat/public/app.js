@@ -319,14 +319,16 @@ async function selectSession(id) {
 
 // ---- Chat bubbles ----
 
-// The model writes in a screenplay-ish style — a blank line between every
-// action beat and line of dialogue — and `white-space: pre-wrap` renders
-// those blank lines as visible empty gaps, which read as "way too much line
-// spacing" even though the CSS line-height itself is tight. Collapse runs of
-// blank lines down to a single line break for display only (doesn't touch
-// what's stored/edited/sent to TTS).
+// The model writes in a screenplay-ish style — every action beat and line
+// of dialogue gets its own paragraph, separated by a blank line — and
+// `white-space: pre-wrap` renders each one as a forced line break. Even
+// after collapsing blank gaps, that still means most "lines" are really
+// short sentence fragments that end long before the bubble's right edge,
+// instead of flowing prose that wraps by width like a normal chat bubble.
+// Flatten everything to one continuous block and let the browser wrap it
+// naturally (display only — doesn't touch what's stored/edited/sent to TTS).
 function formatForDisplay(text) {
-  return text.replace(/\n{2,}/g, '\n');
+  return text.replace(/\s*\n+\s*/g, ' ').trim();
 }
 
 function appendBubble(role, text, imageUrls, id) {
