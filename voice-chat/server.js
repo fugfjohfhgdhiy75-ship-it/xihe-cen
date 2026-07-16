@@ -6,7 +6,10 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  baseURL: process.env.ANTHROPIC_BASE_URL || undefined,
+});
 const MODEL = process.env.MODEL || 'claude-sonnet-5';
 
 const MINIMAX_API_HOST = process.env.MINIMAX_API_HOST || 'https://api.minimax.io';

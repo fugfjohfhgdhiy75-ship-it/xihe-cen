@@ -15,6 +15,8 @@ npm start
 
 打开 http://localhost:3000,点击麦克风按钮开始通话。
 
+走中转站(而不是官方 Anthropic 账号)的话,把中转站给的接口地址填进 `.env` 的 `ANTHROPIC_BASE_URL`(形如 `https://xxx.xxx/v1`),`MODEL` 按中转站文档里给的模型名填。
+
 ## 使用说明
 
 - 点击圆形按钮开始通话,浏览器会请求麦克风权限。
