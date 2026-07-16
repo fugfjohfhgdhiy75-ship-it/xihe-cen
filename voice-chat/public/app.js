@@ -565,6 +565,16 @@ function attachAudioLazy(bubble, text) {
       return;
     }
 
+    // Must happen synchronously inside the click handler, before any
+    // `await` — iOS Safari only counts play() as tied to the user's tap if
+    // it's called (near-)immediately. The real audio fetch below can take
+    // a while (especially ElevenLabs' slower models), so by the time we'd
+    // otherwise call ttsPlayer.play() the gesture window may have already
+    // closed, silently rejecting it ("not allowed by the user agent").
+    // Only needed on this fresh-fetch path — the pause/resume branches
+    // above already call play()/pause() synchronously themselves.
+    unlockAudioPlayback();
+
     bubble.playBtn.disabled = true;
     try {
       if (!audioUrl) audioUrl = await fetchServerAudioUrl(spoken);
