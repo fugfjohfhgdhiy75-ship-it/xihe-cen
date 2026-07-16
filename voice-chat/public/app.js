@@ -525,6 +525,17 @@ ttsPlayer.addEventListener('ended', () => {
   currentPlayingBubble = null;
 });
 
+// If the fetched audio is empty/corrupt/unplayable, the browser fires
+// 'error' on the element (often instantly, before or instead of ever
+// actually sounding) rather than rejecting the play() promise — without
+// this listener that fails completely silently: the icon just quietly
+// resets to ▶ with no indication anything went wrong.
+ttsPlayer.addEventListener('error', () => {
+  statusText.textContent = '播放失败(可能是返回的音频有问题,比如账号还没开通对应模型权限)';
+  if (currentPlayingBubble) currentPlayingBubble.playBtn.innerHTML = ICON_PLAY;
+  currentPlayingBubble = null;
+});
+
 function attachAudioLazy(bubble, text) {
   const spoken = stripStageDirections(text, ttsProvider === 'elevenlabs');
   bubble.playBtn.classList.add('ready');

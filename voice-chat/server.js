@@ -449,12 +449,23 @@ app.post('/api/tts', async (req, res) => {
       });
       if (!elRes.ok) {
         const errBody = await elRes.text().catch(() => '');
-        res.status(502).json({ error: 'ElevenLabs 返回异常: ' + errBody });
+        console.error('ElevenLabs TTS error:', elRes.status, errBody);
+        res.status(502).json({ error: 'ElevenLabs 返回异常(' + elRes.status + '): ' + errBody });
+        return;
+      }
+      const audioBuf = Buffer.from(await elRes.arrayBuffer());
+      // A real mp3 clip is never this small — a few dozen bytes back with a
+      // 200 status means something upstream silently gave us junk (e.g. no
+      // access to this model on the account) instead of a proper HTTP error.
+      if (audioBuf.length < 500) {
+        console.error('ElevenLabs TTS suspiciously small response:', audioBuf.length, 'bytes:', audioBuf.toString('utf8').slice(0, 300));
+        res.status(502).json({ error: 'ElevenLabs 返回的音频内容异常(只有 ' + audioBuf.length + ' 字节),可能是账号没有 ' + ELEVENLABS_MODEL + ' 模型的使用权限' });
         return;
       }
       res.setHeader('Content-Type', 'audio/mpeg');
-      res.send(Buffer.from(await elRes.arrayBuffer()));
+      res.send(audioBuf);
     } catch (err) {
+      console.error('ElevenLabs TTS threw:', err);
       res.status(500).json({ error: err.message });
     }
     return;
