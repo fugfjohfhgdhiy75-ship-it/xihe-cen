@@ -37,10 +37,21 @@ const CLONE_PASSCODE = process.env.CLONE_PASSCODE;
 // ElevenLabs is a direct (non-relay) official API — no billing workaround
 // needed here like with Claude, so this always hits api.elevenlabs.io.
 // When configured it takes priority over MiniMax (see /api/config below).
+//
+// eleven_v3 specifically (not v2) is what understands bracketed performance
+// tags like [breathing heavily] / [whispers] / [laughs] — v2 just reads
+// them as literal text or ignores them. Stability/style/speed defaults
+// below match what actually produced natural-sounding, non-robotic delivery
+// in testing: high stability flattens out exactly the expressiveness these
+// tags are meant to add.
 const ELEVENLABS_API_HOST = process.env.ELEVENLABS_API_HOST || 'https://api.elevenlabs.io';
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID;
-const ELEVENLABS_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';
+const ELEVENLABS_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_v3';
+const ELEVENLABS_STABILITY = Number(process.env.ELEVENLABS_STABILITY || 0.3);
+const ELEVENLABS_SIMILARITY = Number(process.env.ELEVENLABS_SIMILARITY || 0.75);
+const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE || 0.88);
+const ELEVENLABS_SPEED = Number(process.env.ELEVENLABS_SPEED || 1.08);
 const ELEVENLABS_READY = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -427,7 +438,13 @@ app.post('/api/tts', async (req, res) => {
         body: JSON.stringify({
           text,
           model_id: ELEVENLABS_MODEL,
-          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+          voice_settings: {
+            stability: ELEVENLABS_STABILITY,
+            similarity_boost: ELEVENLABS_SIMILARITY,
+            style: ELEVENLABS_STYLE,
+            speed: ELEVENLABS_SPEED,
+            use_speaker_boost: true,
+          },
         }),
       });
       if (!elRes.ok) {

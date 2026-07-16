@@ -480,10 +480,35 @@ async function fetchServerAudioUrl(text) {
 
 // Lazy: text always shows immediately; audio is only fetched/synthesized
 // when the user taps ▶ — no auto-play, for fresh replies or history alike.
-// Strip parenthesized stage directions (动作/表情/环境描写) so TTS only
-// reads the actual spoken line, e.g. "(抱住你)在的在的。" -> "在的在的。"
-function stripStageDirections(text) {
-  return text.replace(/[（(][^）)]*[）)]/g, '').replace(/[ \t]+/g, ' ').trim();
+//
+// ElevenLabs eleven_v3 reads bracketed English performance tags like
+// [breathing heavily] / [whispers] / [laughs] as actual delivery direction,
+// not just text to read aloud (see ElevenLabs' Audio Tags docs). Our
+// parenthesized Chinese stage directions — "(笑着)", "(小声)" — are exactly
+// that kind of cue, just never translated. Map the common ones to their
+// ElevenLabs tag equivalent instead of just deleting them; anything
+// unrecognized still gets dropped like before. MiniMax/browser TTS don't
+// understand these tags, so only do this for ElevenLabs.
+const ACTION_TAG_MAP = [
+  [/笑/, 'laughs'],
+  [/叹气|叹了口气|无奈/, 'sighs'],
+  [/小声|轻声|低声|悄悄|耳朵/, 'whispers'],
+  [/喘/, 'breathing heavily'],
+  [/哭|抽泣|哽咽|红了眼眶/, 'crying'],
+  [/生气|炸毛|瞪/, 'angry'],
+  [/兴奋|激动/, 'excited'],
+];
+
+function actionToAudioTag(action) {
+  const hit = ACTION_TAG_MAP.find(([re]) => re.test(action));
+  return hit ? `[${hit[1]}] ` : '';
+}
+
+function stripStageDirections(text, useTags) {
+  return text
+    .replace(/[（(]([^）)]*)[）)]/g, (_, inner) => (useTags ? actionToAudioTag(inner) : ''))
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 }
 
 // The whole app shares one <audio> element (needed for the iOS autoplay
@@ -501,7 +526,7 @@ ttsPlayer.addEventListener('ended', () => {
 });
 
 function attachAudioLazy(bubble, text) {
-  const spoken = stripStageDirections(text);
+  const spoken = stripStageDirections(text, ttsProvider === 'elevenlabs');
   bubble.playBtn.classList.add('ready');
   bubble.speedBtn.classList.add('ready');
   let audioUrl = null;

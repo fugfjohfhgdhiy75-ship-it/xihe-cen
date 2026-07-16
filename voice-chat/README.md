@@ -53,9 +53,18 @@ alter table messages add column if not exists image_urls jsonb;
 5. 填进 `.env`:`ELEVENLABS_API_KEY`、`ELEVENLABS_VOICE_ID`。
 6. 重启服务(或者线上改完 Render 环境变量重新部署),前端会自动切换成 ElevenLabs 朗读。
 
-`ELEVENLABS_MODEL` 默认 `eleven_multilingual_v2`(音质更自然,中文表现更好);想要更低延迟可以改成 `eleven_flash_v2_5`,但音质会打点折扣。免费账户每月有字符额度限制,超了要么等下个月刷新要么升级订阅。
+`ELEVENLABS_MODEL` 默认 `eleven_v3`——**必须是 v3**,只有这个版本认识 `[breathing heavily]` `[whispers]` `[laughs]` 这类方括号表演标签,换成 v2 系列这些标签基本没用。免费账户每月有字符额度限制,超了要么等下个月刷新要么升级订阅。
 
 ElevenLabs 是直连官方接口,不走中转站,所以不会有中转站那种断线/不稳定的问题——这里说的只是"点 ▶ 按需合成一段语音"这种一次性请求,不是实时语音通话,稳定性和之前的 MiniMax 是同一个级别。
+
+**怎么调出"活人感"而不是播音腔**:
+
+- `ELEVENLABS_STABILITY`(默认 0.3):越低声音起伏越大、越有表演感;调到 0.5 以上会明显变平、变机械。
+- `ELEVENLABS_STYLE`(默认 0.88):越高越有戏、越夸张。
+- `ELEVENLABS_SPEED`(默认 1.08):略快于正常语速(1.0),更像日常说话而不是念稿。
+- 回复文字里的 `(笑着)` `(小声)` `(喘气)` 这类中文动作描写,朗读时会自动翻译成 ElevenLabs 认识的英文表演标签(比如 `[laughs]` `[whispers]` `[breathing heavily]`),不再是直接被删掉——这样动作描写能真正影响声音的表演,不只是聊天气泡里的装饰文字。能识别的动作词是个小词典,覆盖笑/叹气/小声/喘/哭/生气/兴奋这几类,认不出来的还是照常从朗读文本里去掉。
+- 这套标签本质是"表演提示",不是每次都 100% 稳定生效,同一句话不同版本效果可能不一样,属于正常现象。
+- 参数改完存到 Render 的环境变量里重新部署就行,不用改代码。
 
 ## 接入 MiniMax speech-02 克隆音色
 
