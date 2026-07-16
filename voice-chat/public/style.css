@@ -11,8 +11,6 @@
   --glass: rgba(255,255,255,0.28);
   --glass-strong: rgba(255,255,255,0.4);
   --glass-border: rgba(255,255,255,0.65);
-  --bubble-user: linear-gradient(135deg, rgba(120,169,224,0.62), rgba(88,138,210,0.62));
-  --bubble-assistant: rgba(255,255,255,0.32);
   --text: #24344c;
   --text-dim: rgba(36,52,76,0.6);
   --border: rgba(255,255,255,0.55);
@@ -30,12 +28,23 @@ body {
   height: 100vh;
   height: 100dvh;
   -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+/* Background lives on a pseudo-element (not directly on body) so the
+   saturate/brightness filter that gives it that hazy, low-saturation
+   "morning fog" look only touches the photo — not the UI drawn on top. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
   background:
     linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.05) 30%, rgba(233,244,255,0.15) 75%, rgba(233,244,255,0.35) 100%),
     url('img/sky-bg.jpg');
   background-size: cover;
   background-position: center;
-  background-attachment: fixed;
+  filter: saturate(0.78) brightness(1.06);
 }
 
 .chime-deco {
@@ -275,14 +284,18 @@ h1 {
   padding: 11px 15px;
   border-radius: 20px;
   font-size: 17px;
-  line-height: 1.55;
+  font-weight: 300;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
   max-width: 82%;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 6px 20px rgba(94,142,207,0.12);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   animation: rise 0.2s ease-out;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: rgba(255,255,255,0.35);
+  border: 1px solid rgba(255,255,255,0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .bubble .bubble-row {
@@ -298,19 +311,13 @@ h1 {
 
 .bubble.user {
   align-self: flex-end;
-  background: var(--bubble-user);
-  border: 1px solid rgba(255,255,255,0.5);
+  background: rgba(178,205,235,0.35);
   border-bottom-right-radius: 6px;
-  color: #fff;
-  text-shadow: 0 1px 4px rgba(20,45,80,0.45);
 }
 
 .bubble.assistant {
   align-self: flex-start;
-  background: var(--bubble-assistant);
-  border: 1px solid var(--glass-border);
   border-bottom-left-radius: 6px;
-  color: var(--text);
 }
 
 .bubble .bubble-text {
@@ -347,8 +354,8 @@ h1 {
   height: 22px;
   border-radius: 50%;
   border: none;
-  background: rgba(255,255,255,0.35);
-  color: #fff;
+  background: rgba(255,255,255,0.4);
+  color: var(--text);
   cursor: pointer;
   font-size: 11px;
   display: flex;
@@ -359,14 +366,16 @@ h1 {
 
 .edit-textarea {
   flex: 1;
-  background: rgba(255,255,255,0.25);
-  border: 1px solid rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.4);
+  border: 1px solid rgba(255,255,255,0.6);
   border-radius: 14px;
-  color: #fff;
+  color: var(--text);
   padding: 8px 10px;
   font-size: 17px;
+  font-weight: 300;
   font-family: inherit;
-  line-height: 1.55;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
   resize: vertical;
   min-height: 40px;
 }
@@ -379,7 +388,7 @@ h1 {
 }
 
 .edit-actions .mini-icon-btn {
-  color: rgba(255,255,255,0.9);
+  color: var(--text-dim);
 }
 
 .bubble .bubble-img {

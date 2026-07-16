@@ -1,7 +1,6 @@
 const statusText = document.getElementById('statusText');
 const transcriptEl = document.getElementById('transcript');
 const setupNotice = document.getElementById('setupNotice');
-const sessionTitle = document.getElementById('sessionTitle');
 
 // iOS Safari never shrinks the layout viewport for the on-screen keyboard —
 // it just overlays it. The previous approach kept the composer at
@@ -276,7 +275,6 @@ async function renameSession(id, currentName) {
   const s = sessions.find((x) => x.id === id);
   if (s) s.name = name.trim();
   renderSessionsList();
-  if (id === currentSessionId) sessionTitle.textContent = name.trim();
 }
 
 async function deleteSession(id) {
@@ -296,8 +294,6 @@ async function deleteSession(id) {
 
 async function selectSession(id) {
   currentSessionId = id;
-  const s = sessions.find((x) => x.id === id);
-  sessionTitle.textContent = (s && s.name) || '苏晏';
   sessionsPanel.classList.add('hidden');
   renderSessionsList();
 
