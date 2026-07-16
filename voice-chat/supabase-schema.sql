@@ -13,11 +13,13 @@ create table if not exists messages (
   role text not null check (role in ('user', 'assistant')),
   content text not null,
   image_url text,
+  image_urls jsonb,
   visible boolean not null default true,
   created_at timestamptz not null default now()
 );
 
 alter table messages add column if not exists image_url text;
+alter table messages add column if not exists image_urls jsonb;
 
 create table if not exists memories (
   id bigint generated always as identity primary key,

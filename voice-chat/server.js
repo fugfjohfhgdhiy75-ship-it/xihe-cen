@@ -175,7 +175,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase
     .from('messages')
-    .select('id, role, content, image_url, created_at')
+    .select('id, role, content, image_url, image_urls, created_at')
     .eq('session_id', req.params.id)
     .eq('visible', true)
     .order('created_at', { ascending: true });
@@ -217,13 +217,14 @@ app.put('/api/settings', async (req, res) => {
   res.json(data);
 });
 
-app.post('/api/chat', upload.single('image'), async (req, res) => {
+app.post('/api/chat', upload.array('images', 6), async (req, res) => {
   const sessionId = req.body.sessionId;
   const message = req.body.message || '';
   const systemOverride = req.body.system;
+  const files = req.files || [];
 
-  if (!sessionId || (!message.trim() && !req.file)) {
-    res.status(400).json({ error: 'sessionId and message (or an image) are required' });
+  if (!sessionId || (!message.trim() && !files.length)) {
+    res.status(400).json({ error: 'sessionId and message (or at least one image) are required' });
     return;
   }
   if (!requireSupabase(res)) return;
@@ -245,19 +246,27 @@ app.post('/api/chat', upload.single('image'), async (req, res) => {
   };
 
   try {
-    let imageUrl = null;
-    if (req.file) {
-      const path = `${sessionId}/${Date.now()}-${req.file.originalname || 'image'}`;
-      const { error: uploadErr } = await supabase.storage
-        .from(IMAGE_BUCKET)
-        .upload(path, req.file.buffer, { contentType: req.file.mimetype });
-      if (uploadErr) throw new Error('图片上传失败: ' + uploadErr.message);
-      imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+    let imageUrls = [];
+    if (files.length) {
+      imageUrls = await Promise.all(files.map(async (file, i) => {
+        const path = `${sessionId}/${Date.now()}-${i}-${file.originalname || 'image'}`;
+        const { error: uploadErr } = await supabase.storage
+          .from(IMAGE_BUCKET)
+          .upload(path, file.buffer, { contentType: file.mimetype });
+        if (uploadErr) throw new Error('图片上传失败: ' + uploadErr.message);
+        return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+      }));
     }
 
     const { data: insertedUserMessage } = await supabase
       .from('messages')
-      .insert({ session_id: sessionId, role: 'user', content: message, image_url: imageUrl })
+      .insert({
+        session_id: sessionId,
+        role: 'user',
+        content: message,
+        image_url: imageUrls[0] || null,
+        image_urls: imageUrls.length ? imageUrls : null,
+      })
       .select()
       .single();
     if (insertedUserMessage) send({ userMessageId: insertedUserMessage.id });
@@ -279,13 +288,14 @@ app.post('/api/chat', upload.single('image'), async (req, res) => {
     // Only the message we just inserted (the last one) carries the actual
     // image bytes to the model — history reloads don't re-send past images,
     // keeping token/bandwidth cost bounded.
-    if (req.file) {
+    if (files.length) {
       const last = messages[messages.length - 1];
       if (last && last.role === 'user') {
-        last.content = [
-          { type: 'image', source: { type: 'base64', media_type: req.file.mimetype, data: req.file.buffer.toString('base64') } },
-          { type: 'text', text: message || '(图片)' },
-        ];
+        const imageBlocks = files.map((file) => ({
+          type: 'image',
+          source: { type: 'base64', media_type: file.mimetype, data: file.buffer.toString('base64') },
+        }));
+        last.content = [...imageBlocks, { type: 'text', text: message || '(图片)' }];
       }
     }
 

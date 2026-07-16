@@ -78,13 +78,13 @@ const sendBtn = document.getElementById('sendBtn');
 const imageBtn = document.getElementById('imageBtn');
 const imageInput = document.getElementById('imageInput');
 const imagePreview = document.getElementById('imagePreview');
-const imagePreviewImg = document.getElementById('imagePreviewImg');
-const imagePreviewRemove = document.getElementById('imagePreviewRemove');
+
+const MAX_IMAGES = 6;
 
 let selectedVoice = null;
 let ttsProvider = 'browser';
 let supabaseReady = false;
-let selectedImageFile = null;
+let selectedImageFiles = [];
 let sessions = [];
 let currentSessionId = null;
 
@@ -303,7 +303,8 @@ async function selectSession(id) {
     const res = await fetch(`/api/sessions/${id}/messages`);
     const msgs = await res.json();
     msgs.forEach((m) => {
-      const bubble = appendBubble(m.role, m.content, m.image_url, m.id);
+      const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
+      const bubble = appendBubble(m.role, m.content, imageUrls, m.id);
       if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
     });
     statusText.textContent = '';
@@ -314,16 +315,22 @@ async function selectSession(id) {
 
 // ---- Chat bubbles ----
 
-function appendBubble(role, text, imageUrl, id) {
+function appendBubble(role, text, imageUrls, id) {
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
 
-  if (imageUrl) {
-    const img = document.createElement('img');
-    img.className = 'bubble-img';
-    img.src = imageUrl;
-    img.alt = '图片';
-    div.appendChild(img);
+  const urls = Array.isArray(imageUrls) ? imageUrls : (imageUrls ? [imageUrls] : []);
+  if (urls.length) {
+    const grid = document.createElement('div');
+    grid.className = 'bubble-img-grid';
+    urls.forEach((url) => {
+      const img = document.createElement('img');
+      img.className = 'bubble-img';
+      img.src = url;
+      img.alt = '图片';
+      grid.appendChild(img);
+    });
+    div.appendChild(grid);
   }
 
   const row = document.createElement('div');
@@ -480,11 +487,11 @@ function attachAudioLazy(bubble, text) {
 
 async function sendMessage(rawText) {
   const text = (rawText || '').trim();
-  const imageFile = selectedImageFile;
-  if ((!text && !imageFile) || !currentSessionId) return;
+  const imageFiles = selectedImageFiles;
+  if ((!text && !imageFiles.length) || !currentSessionId) return;
 
-  const localImageUrl = imageFile ? URL.createObjectURL(imageFile) : undefined;
-  const userBubble = appendBubble('user', text, localImageUrl);
+  const localImageUrls = imageFiles.map((f) => URL.createObjectURL(f));
+  const userBubble = appendBubble('user', text, localImageUrls);
   textInput.value = '';
   clearImageSelection();
   setBusy(true);
@@ -497,7 +504,7 @@ async function sendMessage(rawText) {
     const form = new FormData();
     form.append('sessionId', currentSessionId);
     form.append('message', text);
-    if (imageFile) form.append('image', imageFile);
+    imageFiles.forEach((f) => form.append('images', f));
 
     const res = await fetch('/api/chat', { method: 'POST', body: form });
 
@@ -566,21 +573,48 @@ textInput.addEventListener('keydown', (e) => {
   }
 });
 
+function renderImagePreview() {
+  imagePreview.innerHTML = '';
+  if (!selectedImageFiles.length) {
+    imagePreview.classList.add('hidden');
+    return;
+  }
+  selectedImageFiles.forEach((file, i) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'image-preview-thumb';
+
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    thumb.appendChild(img);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'image-preview-remove';
+    removeBtn.type = 'button';
+    removeBtn.title = '移除这张';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => {
+      selectedImageFiles.splice(i, 1);
+      renderImagePreview();
+    });
+    thumb.appendChild(removeBtn);
+
+    imagePreview.appendChild(thumb);
+  });
+  imagePreview.classList.remove('hidden');
+}
+
 function clearImageSelection() {
-  selectedImageFile = null;
+  selectedImageFiles = [];
   imageInput.value = '';
-  imagePreview.classList.add('hidden');
-  imagePreviewImg.src = '';
+  renderImagePreview();
 }
 
 imageBtn.addEventListener('click', () => imageInput.click());
 
 imageInput.addEventListener('change', () => {
-  const file = imageInput.files && imageInput.files[0];
-  if (!file) return;
-  selectedImageFile = file;
-  imagePreviewImg.src = URL.createObjectURL(file);
-  imagePreview.classList.remove('hidden');
+  const files = Array.from(imageInput.files || []);
+  if (!files.length) return;
+  selectedImageFiles = selectedImageFiles.concat(files).slice(0, MAX_IMAGES);
+  imageInput.value = '';
+  renderImagePreview();
 });
-
-imagePreviewRemove.addEventListener('click', clearImageSelection);

@@ -24,7 +24,7 @@ npm start
 - 左上角 ☰ 是对话列表,可以新建/切换/改名/删除多个独立对话,每个对话的记录都存在 Supabase 里,换设备登录也能接着聊。
 - 右上角齿轮可以改 System Prompt(存在服务器,全设备共用)、浏览器朗读的语言/音色(仅浏览器 TTS 模式下生效)。改完记得点"保存"。
 - 没配置 Supabase 时,顶部会有提示,输入框也会被禁用——聊天记录持久化是必须有数据库的,见下面"接入 Supabase"。
-- 输入框左边的叶子图标可以发图片,选好会先出个小预览,确认没问题再发送;模型要支持多模态(能看图)才认得,`MODEL` 换成不支持的会报错。图片存在 Supabase Storage 里,历史记录里也能看到;为了控制成本,只有"当下这一轮"会把图片真的发给模型,之后的对话不会每次重发。
+- 输入框左边的叶子图标可以发图片,一次能多选(最多 6 张),选好会出一排小预览,每张右上角有 ✕ 能单独移除,确认没问题再发送;模型要支持多模态(能看图)才认得,`MODEL` 换成不支持的会报错。图片存在 Supabase Storage 里,历史记录里也能看到;为了控制成本,只有"当下这一轮"会把图片真的发给模型,之后的对话不会每次重发。
 - 自己发的消息气泡右边有个 ✎,点一下能改文字(比如打错字了),改完点"保存"直接改数据库里存的内容,不会重新触发一次回复。
 
 ## 接入 Supabase(聊天记录持久化 + 多会话 + 记忆压缩)
@@ -38,9 +38,10 @@ npm start
 
 阈值调得比较宽松是故意的——压缩本质是有损的,压得太勤、摘要写得太短,具体细节会被压没,问起来就会"打哑谜"、前言不搭后语。如果还是觉得它"聊着聊着变笨",可以把 `COMPRESS_CHAR_THRESHOLD` 调得更大,甚至先关掉观察(设一个很大的数字,比如 999999)。
 
-**发图片**需要额外建一个 Storage 桶:服务器启动时会自动尝试创建一个叫 `chat-images` 的公开桶,一般不用手动管;如果启动日志报 `createBucket error`,就去 Supabase 的 **Storage** 页面手动建一个名字为 `chat-images` 的 **Public** 桶。另外 `messages` 表需要多一个 `image_url` 字段,老项目在 SQL Editor 里跑一下这一行就行(新项目跑完整个 `supabase-schema.sql` 已经包含):
+**发图片**需要额外建一个 Storage 桶:服务器启动时会自动尝试创建一个叫 `chat-images` 的公开桶,一般不用手动管;如果启动日志报 `createBucket error`,就去 Supabase 的 **Storage** 页面手动建一个名字为 `chat-images` 的 **Public** 桶。另外 `messages` 表需要 `image_url` / `image_urls` 两个字段(后者是数组,存"一次发多张"的情况),老项目在 SQL Editor 里跑一下这两行就行(新项目跑完整个 `supabase-schema.sql` 已经包含):
 ```sql
 alter table messages add column if not exists image_url text;
+alter table messages add column if not exists image_urls jsonb;
 ```
 
 ## 接入 MiniMax speech-02 克隆音色
