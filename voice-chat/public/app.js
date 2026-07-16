@@ -20,25 +20,13 @@ const sessionTitle = document.getElementById('sessionTitle');
 // of whatever's actually visible.
 const appEl = document.querySelector('.app');
 const composerDock = document.getElementById('composerDock');
-let vvMaxHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 function syncAppHeight() {
   if (!appEl || !window.visualViewport) return;
-  const vv = window.visualViewport;
-  appEl.style.height = vv.height + 'px';
+  appEl.style.height = window.visualViewport.height + 'px';
   // iOS sometimes scrolls the (non-scrolling) page to bring the focused
   // input into view on its own; snap it back so our own layout is the only
   // thing driving position.
   window.scrollTo(0, 0);
-
-  // env(safe-area-inset-bottom) reserves room for the home-indicator bar
-  // and stays constant even when the keyboard is up — but the keyboard
-  // already occupies that strip, so keeping the padding left a blank gap
-  // between the composer and the keyboard. Drop it whenever the visible
-  // height has shrunk a lot from its tallest recent value (= keyboard is
-  // covering the home-indicator area); restore it once the keyboard closes.
-  vvMaxHeight = Math.max(vvMaxHeight, vv.height);
-  const keyboardOpen = vvMaxHeight - vv.height > 150;
-  if (composerDock) composerDock.classList.toggle('kb-open', keyboardOpen);
 }
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', syncAppHeight);
@@ -47,16 +35,27 @@ if (window.visualViewport) {
 window.addEventListener('load', syncAppHeight);
 syncAppHeight();
 
-// Belt-and-suspenders: on some iOS versions the visualViewport resize event
-// itself lags a beat behind the keyboard's open/close animation. Re-run the
-// sync a few times right after any input gains/loses focus so the layout
-// catches up even if that event was late or skipped.
+// env(safe-area-inset-bottom) reserves room for the home-indicator bar and
+// stays constant even when the keyboard is up — but the keyboard already
+// occupies that strip, so keeping the padding left a blank gap between the
+// composer and the keyboard. "Is a text field focused" is a direct, always-
+// correct signal for "is the keyboard open" (far more reliable than
+// inferring it from a viewport-height diff, which can be thrown off by
+// exactly how much of the shrink is keyboard vs. Safari's own accessory
+// toolbar above it) — use that to toggle the padding off.
+//
+// Also doubles as the belt-and-suspenders fix for visualViewport's resize
+// event lagging the keyboard's open/close animation on some iOS versions:
+// re-run the height sync a few times right after focus changes so the
+// layout catches up even if that event was late or skipped.
 document.addEventListener('focusin', (e) => {
   if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  if (composerDock) composerDock.classList.add('kb-open');
   [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
 });
 document.addEventListener('focusout', (e) => {
   if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  if (composerDock) composerDock.classList.remove('kb-open');
   [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
 });
 

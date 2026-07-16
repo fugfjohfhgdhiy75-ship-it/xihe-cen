@@ -396,9 +396,9 @@ h1 {
 
 /* While the keyboard is up it already covers the home-indicator strip, so
    the safe-area padding below is just dead space between the composer and
-   the keyboard — drop it until the keyboard closes again. */
+   the keyboard — drop it entirely until the keyboard closes again. */
 .composer-dock.kb-open {
-  padding-bottom: 10px;
+  padding-bottom: 0;
 }
 
 .image-preview {
