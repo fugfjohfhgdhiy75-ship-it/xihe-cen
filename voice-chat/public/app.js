@@ -317,13 +317,21 @@ async function fetchMinimaxAudioUrl(text) {
 
 // Lazy: text always shows immediately; audio is only fetched/synthesized
 // when the user taps ▶ — no auto-play, for fresh replies or history alike.
+// Strip parenthesized stage directions (动作/表情/环境描写) so TTS only
+// reads the actual spoken line, e.g. "(抱住你)在的在的。" -> "在的在的。"
+function stripStageDirections(text) {
+  return text.replace(/[（(][^）)]*[）)]/g, '').replace(/[ \t]+/g, ' ').trim();
+}
+
 function attachAudioLazy(bubble, text) {
+  const spoken = stripStageDirections(text);
   bubble.playBtn.classList.add('ready');
   bubble.playBtn.onclick = async () => {
-    if (ttsProvider !== 'minimax') { speakBrowser(text); return; }
+    if (!spoken) { statusText.textContent = '这条只有动作描写,没有可朗读的台词'; return; }
+    if (ttsProvider !== 'minimax') { speakBrowser(spoken); return; }
     bubble.playBtn.disabled = true;
     try {
-      const url = await fetchMinimaxAudioUrl(text);
+      const url = await fetchMinimaxAudioUrl(spoken);
       bubble.playBtn.onclick = () => playUrl(url);
       playUrl(url);
     } catch (err) {
