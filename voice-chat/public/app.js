@@ -319,6 +319,16 @@ async function selectSession(id) {
 
 // ---- Chat bubbles ----
 
+// The model writes in a screenplay-ish style — a blank line between every
+// action beat and line of dialogue — and `white-space: pre-wrap` renders
+// those blank lines as visible empty gaps, which read as "way too much line
+// spacing" even though the CSS line-height itself is tight. Collapse runs of
+// blank lines down to a single line break for display only (doesn't touch
+// what's stored/edited/sent to TTS).
+function formatForDisplay(text) {
+  return text.replace(/\n{2,}/g, '\n');
+}
+
 function appendBubble(role, text, imageUrls, id) {
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
@@ -343,7 +353,7 @@ function appendBubble(role, text, imageUrls, id) {
 
   const textEl = document.createElement('span');
   textEl.className = 'bubble-text';
-  textEl.textContent = text;
+  textEl.textContent = formatForDisplay(text);
   row.appendChild(textEl);
 
   let playBtn = null;
@@ -580,7 +590,7 @@ async function sendMessage(rawText) {
         }
         if (payload.text) {
           fullText += payload.text;
-          assistantBubble.textEl.textContent = fullText;
+          assistantBubble.textEl.textContent = formatForDisplay(fullText);
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
       }
