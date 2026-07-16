@@ -31,14 +31,27 @@ body {
   height: 100dvh;
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(60% 40% at 15% 8%, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0) 60%),
-    radial-gradient(70% 50% at 85% 18%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 60%),
-    radial-gradient(90% 60% at 50% 100%, var(--sky-3) 0%, rgba(169,205,240,0) 70%),
-    linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 55%, var(--sky-3) 100%);
+    linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.15) 30%, rgba(233,244,255,0.35) 75%, rgba(233,244,255,0.6) 100%),
+    url('img/sky-bg.jpg');
+  background-size: cover;
+  background-position: center;
   background-attachment: fixed;
 }
 
+.chime-deco {
+  position: fixed;
+  top: -6px;
+  right: -14px;
+  width: 96px;
+  height: auto;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+}
+
 .app {
+  position: relative;
+  z-index: 1;
   max-width: 480px;
   margin: 0 auto;
   height: 100%;
@@ -261,8 +274,8 @@ h1 {
 .bubble {
   padding: 11px 15px;
   border-radius: 20px;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 17px;
+  line-height: 1.55;
   max-width: 82%;
   display: flex;
   flex-direction: column;
@@ -351,9 +364,9 @@ h1 {
   border-radius: 14px;
   color: #fff;
   padding: 8px 10px;
-  font-size: 15px;
+  font-size: 17px;
   font-family: inherit;
-  line-height: 1.5;
+  line-height: 1.55;
   resize: vertical;
   min-height: 40px;
 }
@@ -439,7 +452,7 @@ h1 {
   border: none;
   color: var(--text);
   padding: 10px 8px;
-  font-size: 15px;
+  font-size: 16px;
   min-width: 0;
 }
 
