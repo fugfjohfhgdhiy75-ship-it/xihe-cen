@@ -311,7 +311,8 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // rut — always the same "structured essay with **bold** emphasis and
     // 破折号" rhetorical pattern regardless of what's actually being said.
     // Real conversation varies in length and register with the moment.
-    systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、破折号排比、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
+    systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
+    systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
     const messages = (history || []).map((m) => ({ role: m.role, content: m.content }));
