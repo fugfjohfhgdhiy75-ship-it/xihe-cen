@@ -56,44 +56,26 @@ app.post('/api/chat', async (req, res) => {
   };
 
   try {
-    const stream = anthropic.messages.stream({
+    const message = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1024,
       system: system || undefined,
       messages,
     });
 
-    let receivedChars = 0;
-    stream.on('text', (text) => {
-      receivedChars += text.length;
-      send({ text });
-    });
-    stream.on('end', async () => {
-      if (ended) return;
-      if (receivedChars === 0) {
-        try {
-          const final = await stream.finalMessage();
-          console.error('/api/chat: empty stream, finalMessage =', JSON.stringify(final));
-          send({ error: `模型没返回任何文字(stop_reason=${final.stop_reason}),把这条截图发给开发者` });
-        } catch (e) {
-          console.error('/api/chat: empty stream, finalMessage() also failed:', e);
-          send({ error: '模型没返回任何文字,而且拿不到详细原因,把 Render Logs 截图发给开发者' });
-        }
-      } else {
-        send({ done: true });
-      }
-      finish();
-    });
-    stream.on('error', (err) => {
-      console.error('/api/chat stream error:', err);
-      send({ error: (err && err.message) || String(err) });
-      finish();
-    });
+    const text = (message.content || [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('');
 
-    req.on('close', () => {
-      if (!ended) stream.abort();
-      finish();
-    });
+    if (!text) {
+      console.error('/api/chat: empty completion, message =', JSON.stringify(message));
+      send({ error: `模型没返回任何文字(stop_reason=${message.stop_reason}),把这条截图发给开发者` });
+    } else {
+      send({ text });
+      send({ done: true });
+    }
+    finish();
   } catch (err) {
     console.error('/api/chat handler error:', err);
     send({ error: err.message });
