@@ -14,6 +14,7 @@
 
 html, body {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -21,14 +22,15 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background: radial-gradient(120% 60% at 50% 0%, #232a4d 0%, var(--bg-top) 45%, var(--bg-bot) 100%);
   color: var(--text);
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   -webkit-font-smoothing: antialiased;
 }
 
 .app {
   max-width: 480px;
   margin: 0 auto;
-  min-height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 10px);
@@ -135,13 +137,13 @@ h1 {
 
 .transcript {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 10px 2px 16px;
-  min-height: 40vh;
 }
 
 .bubble {
@@ -201,12 +203,11 @@ h1 {
 }
 
 .composer {
+  flex: none;
   display: flex;
   gap: 8px;
   align-items: center;
   padding: 10px 8px 4px;
-  position: sticky;
-  bottom: 0;
   background: linear-gradient(180deg, transparent, var(--bg-bot) 35%);
 }
 
