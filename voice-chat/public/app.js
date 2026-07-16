@@ -315,26 +315,8 @@ async function fetchMinimaxAudioUrl(text) {
   return URL.createObjectURL(blob);
 }
 
-// Eager: used right after a fresh reply arrives — fetch + auto-play immediately.
-function attachAudioEager(bubble, text) {
-  if (ttsProvider === 'minimax') {
-    fetchMinimaxAudioUrl(text)
-      .then((url) => {
-        bubble.playBtn.classList.add('ready');
-        bubble.playBtn.onclick = () => playUrl(url);
-        playUrl(url);
-      })
-      .catch((err) => {
-        statusText.textContent = 'TTS 出错: ' + err.message;
-      });
-  } else {
-    bubble.playBtn.classList.add('ready');
-    bubble.playBtn.onclick = () => speakBrowser(text);
-    speakBrowser(text);
-  }
-}
-
-// Lazy: used for history — only fetch/synthesize when the user taps play.
+// Lazy: text always shows immediately; audio is only fetched/synthesized
+// when the user taps ▶ — no auto-play, for fresh replies or history alike.
 function attachAudioLazy(bubble, text) {
   bubble.playBtn.classList.add('ready');
   bubble.playBtn.onclick = async () => {
@@ -394,7 +376,7 @@ async function sendMessage(rawText) {
     }
 
     if (fullText) {
-      attachAudioEager(assistantBubble, fullText);
+      attachAudioLazy(assistantBubble, fullText);
       statusText.textContent = '';
       const s = sessions.find((x) => x.id === currentSessionId);
       if (s) {
