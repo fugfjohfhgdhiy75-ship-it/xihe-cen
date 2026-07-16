@@ -1,10 +1,13 @@
 require('dotenv').config();
 const express = require('express');
+const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -18,6 +21,8 @@ const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID;
 const MINIMAX_VOICE_ID = process.env.MINIMAX_VOICE_ID;
 const MINIMAX_MODEL = process.env.MINIMAX_MODEL || 'speech-02-turbo';
 const MINIMAX_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID && MINIMAX_VOICE_ID);
+const MINIMAX_CLONE_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID);
+const CLONE_PASSCODE = process.env.CLONE_PASSCODE;
 
 app.post('/api/chat', async (req, res) => {
   const { messages, system } = req.body;
@@ -110,6 +115,62 @@ app.post('/api/tts', async (req, res) => {
 
     res.setHeader('Content-Type', 'audio/mpeg');
     res.send(Buffer.from(json.data.audio, 'hex'));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/clone-voice', upload.single('audio'), async (req, res) => {
+  if (!MINIMAX_CLONE_READY) {
+    res.status(501).json({ error: 'MiniMax 未配置(缺 MINIMAX_API_KEY / MINIMAX_GROUP_ID)' });
+    return;
+  }
+  if (CLONE_PASSCODE && req.body.passcode !== CLONE_PASSCODE) {
+    res.status(403).json({ error: '口令不对' });
+    return;
+  }
+  if (!req.file) {
+    res.status(400).json({ error: '没收到音频文件' });
+    return;
+  }
+  const voiceId = (req.body.voiceId || '').trim();
+  if (!voiceId) {
+    res.status(400).json({ error: 'voiceId is required' });
+    return;
+  }
+
+  try {
+    const uploadForm = new FormData();
+    uploadForm.append('purpose', 'voice_clone');
+    uploadForm.append('file', new Blob([req.file.buffer]), req.file.originalname || 'voice.mp3');
+
+    const uploadRes = await fetch(`${MINIMAX_API_HOST}/v1/files/upload?GroupId=${MINIMAX_GROUP_ID}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${MINIMAX_API_KEY}` },
+      body: uploadForm,
+    });
+    const uploadJson = await uploadRes.json();
+    const fileId = uploadJson.file && uploadJson.file.file_id;
+    if (!fileId) {
+      res.status(502).json({ error: '上传失败: ' + JSON.stringify(uploadJson) });
+      return;
+    }
+
+    const cloneRes = await fetch(`${MINIMAX_API_HOST}/v1/voice_clone?GroupId=${MINIMAX_GROUP_ID}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MINIMAX_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ file_id: fileId, voice_id: voiceId }),
+    });
+    const cloneJson = await cloneRes.json();
+
+    if (cloneJson.base_resp && cloneJson.base_resp.status_code === 0) {
+      res.json({ ok: true, voiceId, raw: cloneJson });
+    } else {
+      res.status(502).json({ error: '克隆失败: ' + JSON.stringify(cloneJson) });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

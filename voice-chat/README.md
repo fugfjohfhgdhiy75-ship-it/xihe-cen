@@ -29,11 +29,14 @@ npm start
 
 1. 去 [platform.minimax.io](https://platform.minimax.io)(国际版)或 [platform.minimaxi.com](https://platform.minimaxi.com)(国内版)注册,拿到 `API Key` 和 `Group ID`,填进 `.env` 的 `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID`。国内版记得把 `MINIMAX_API_HOST` 改成 `https://api.minimaxi.com`。
 2. 准备一段 10 秒~5 分钟、mp3/m4a/wav、不超过 20MB 的干净音源(没有背景噪音,不然大概率克隆失败或跑出杂音,得重新花钱录)。
-3. 跑克隆脚本(不用碰控制台网页,一行命令搞定):
-   ```bash
-   node scripts/clone-voice.js ./你的音频.mp3 suyan-voice-01
-   ```
-   成功会提示把 `MINIMAX_VOICE_ID=suyan-voice-01` 加到 `.env`。
+3. 克隆有两种方式:
+   - **有本地开发环境**:跑脚本一行命令搞定
+     ```bash
+     node scripts/clone-voice.js ./你的音频.mp3 suyan-voice-01
+     ```
+   - **只有手机/没装 Node**:部署上线后,打开 `https://你的域名/clone.html`,上传音频、填音色 ID,点按钮,网页会调用部署好的服务器完成上传+克隆(服务器有完整外网权限,不受本地网络限制)。这个页面会消耗 MiniMax 余额,建议配一个 `CLONE_PASSCODE` 环境变量做访问口令,不然任何知道网址的人都能用你的余额瞎克隆。
+   
+   成功都会提示把 `MINIMAX_VOICE_ID=suyan-voice-01` 加到环境变量。
 4. **新克隆的音色 7 天内没有被真正合成过一次会被自动清理**,克隆完记得马上开一次通话说句话用一下。
 5. 重启 `npm start`,前端会自动检测到配置,把朗读换成 MiniMax。想切回浏览器朗读,把 `.env` 里的 `MINIMAX_*` 清空即可。
 
