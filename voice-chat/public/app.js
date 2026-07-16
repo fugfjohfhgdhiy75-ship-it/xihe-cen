@@ -161,22 +161,22 @@ function maybeReturnToListening() {
   }
 }
 
-function initRecognition() {
-  recognition = new SpeechRecognitionImpl();
-  recognition.lang = sttLangEl.value;
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
+function createRecognition() {
+  const rec = new SpeechRecognitionImpl();
+  rec.lang = sttLangEl.value;
+  rec.continuous = false;
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
 
-  recognition.onresult = (e) => {
+  rec.onresult = (e) => {
     const result = e.results[e.results.length - 1];
     if (result.isFinal) {
       currentTranscript = result[0].transcript.trim();
     }
   };
 
-  recognition.onend = () => {
-    if (!callActive) return;
+  rec.onend = () => {
+    if (!callActive || rec !== recognition) return;
     if (currentTranscript) {
       const t = currentTranscript;
       currentTranscript = null;
@@ -186,21 +186,31 @@ function initRecognition() {
     }
   };
 
-  recognition.onerror = (e) => {
+  rec.onerror = (e) => {
+    if (rec !== recognition) return;
     if (e.error === 'aborted' || e.error === 'no-speech') return;
     statusText.textContent = '识别出错: ' + e.error;
   };
+
+  return rec;
 }
 
 function startListening() {
   if (!callActive) return;
   setState('listening');
-  try {
-    recognition.lang = sttLangEl.value;
-    recognition.start();
-  } catch (err) {
-    // already started; ignore
-  }
+  // Fresh instance each cycle: reusing one SpeechRecognition object across
+  // many start/stop cycles tends to silently stop delivering results on
+  // iOS Safari after a while. A short delay lets the previous session's
+  // mic/audio handle fully release first.
+  setTimeout(() => {
+    if (!callActive) return;
+    recognition = createRecognition();
+    try {
+      recognition.start();
+    } catch (err) {
+      // already started; ignore
+    }
+  }, 150);
 }
 
 async function handleUserUtterance(text) {
@@ -269,7 +279,6 @@ async function startCall() {
   callActive = true;
   messages = [];
   transcriptEl.innerHTML = '';
-  initRecognition();
   startListening();
 }
 
