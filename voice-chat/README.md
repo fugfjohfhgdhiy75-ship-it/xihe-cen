@@ -33,7 +33,9 @@ npm start
 3. 项目设置里的 **Settings → API** 页面,拿到 **Project URL** 和 **`service_role` 或 `anon` key**(个人项目用哪个都行,填进 `.env` 的 `SUPABASE_URL` / `SUPABASE_KEY`)。
 4. 重启服务,顶部的"未配置 Supabase"提示应该消失,输入框可以用了。
 
-**记忆压缩**是怎么回事:每次对话后,后端会检查当前会话"可见消息"的总字数,超过 `COMPRESS_CHAR_THRESHOLD`(默认 6000 字)就会把最早的一批消息(保留最近 `COMPRESS_KEEP_MESSAGES` 条不动)丢给模型压缩成一段摘要存进 `memories` 表,原始消息标记为不可见(数据还在,只是不再拼进上下文)。这样对话越聊越长也不会无限增加 token 成本。默认用主模型自己做压缩;配置 `DEEPSEEK_API_KEY` 之后会改用更便宜的 DeepSeek 做这件事,不影响主对话质量。
+**记忆压缩**是怎么回事:每次对话后,后端会检查当前会话"可见消息"的总字数,超过 `COMPRESS_CHAR_THRESHOLD`(默认 14000 字)就会把最早的一批消息(保留最近 `COMPRESS_KEEP_MESSAGES` 条,默认 20 条不动)丢给模型压缩成一份详细记忆存进 `memories` 表,原始消息标记为不可见(数据还在,只是不再拼进上下文)。这样对话越聊越长也不会无限增加 token 成本。默认用主模型自己做压缩;配置 `DEEPSEEK_API_KEY` 之后会改用更便宜的 DeepSeek 做这件事,不影响主对话质量。
+
+阈值调得比较宽松是故意的——压缩本质是有损的,压得太勤、摘要写得太短,具体细节会被压没,问起来就会"打哑谜"、前言不搭后语。如果还是觉得它"聊着聊着变笨",可以把 `COMPRESS_CHAR_THRESHOLD` 调得更大,甚至先关掉观察(设一个很大的数字,比如 999999)。
 
 **发图片**需要额外建一个 Storage 桶:服务器启动时会自动尝试创建一个叫 `chat-images` 的公开桶,一般不用手动管;如果启动日志报 `createBucket error`,就去 Supabase 的 **Storage** 页面手动建一个名字为 `chat-images` 的 **Public** 桶。另外 `messages` 表需要多一个 `image_url` 字段,老项目在 SQL Editor 里跑一下这一行就行(新项目跑完整个 `supabase-schema.sql` 已经包含):
 ```sql

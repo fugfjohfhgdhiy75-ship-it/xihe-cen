@@ -49,8 +49,8 @@ if (SUPABASE_READY) {
 }
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const COMPRESS_CHAR_THRESHOLD = Number(process.env.COMPRESS_CHAR_THRESHOLD || 6000);
-const COMPRESS_KEEP_MESSAGES = Number(process.env.COMPRESS_KEEP_MESSAGES || 10);
+const COMPRESS_CHAR_THRESHOLD = Number(process.env.COMPRESS_CHAR_THRESHOLD || 14000);
+const COMPRESS_KEEP_MESSAGES = Number(process.env.COMPRESS_KEEP_MESSAGES || 20);
 
 function requireSupabase(res) {
   if (!SUPABASE_READY) {
@@ -97,7 +97,16 @@ async function compressIfNeeded(sessionId) {
 }
 
 async function summarizeText(transcript) {
-  const prompt = `把下面这段对话压缩成一段简短的中文摘要,保留关键事实、情绪和上下文,不超过 200 字,不要加任何前缀说明:\n\n${transcript}`;
+  const prompt = `把下面这段对话整理成一份详细的中文记忆记录,给继续这段关系用,不是写摘要给别人看。
+要求:
+- 具体的事实、约定、细节、名字、数字、时间点都要保留,不要抽象成一句空泛的话
+- 情绪变化、说过的重要的话(哪怕是一句玩笑或者一个承诺)都要记下来
+- 可以分点写,不用非要压成一段话
+- 不要加"以下是摘要"之类的前缀说明,直接写内容
+- 篇幅不用刻意精简,记全比记短更重要
+
+对话内容:
+${transcript}`;
 
   if (DEEPSEEK_API_KEY) {
     const res = await fetch('https://api.deepseek.com/chat/completions', {
@@ -109,7 +118,7 @@ async function summarizeText(transcript) {
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 400,
+        max_tokens: 1500,
       }),
     });
     const json = await res.json();
@@ -118,7 +127,7 @@ async function summarizeText(transcript) {
 
   const message = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 400,
+    max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   });
   return (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
