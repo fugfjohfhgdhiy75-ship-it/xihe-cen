@@ -19,13 +19,26 @@ const sessionTitle = document.getElementById('sessionTitle');
 // the last flex child, naturally ends up sitting right at the bottom edge
 // of whatever's actually visible.
 const appEl = document.querySelector('.app');
+const composerDock = document.getElementById('composerDock');
+let vvMaxHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 function syncAppHeight() {
   if (!appEl || !window.visualViewport) return;
-  appEl.style.height = window.visualViewport.height + 'px';
+  const vv = window.visualViewport;
+  appEl.style.height = vv.height + 'px';
   // iOS sometimes scrolls the (non-scrolling) page to bring the focused
   // input into view on its own; snap it back so our own layout is the only
   // thing driving position.
   window.scrollTo(0, 0);
+
+  // env(safe-area-inset-bottom) reserves room for the home-indicator bar
+  // and stays constant even when the keyboard is up — but the keyboard
+  // already occupies that strip, so keeping the padding left a blank gap
+  // between the composer and the keyboard. Drop it whenever the visible
+  // height has shrunk a lot from its tallest recent value (= keyboard is
+  // covering the home-indicator area); restore it once the keyboard closes.
+  vvMaxHeight = Math.max(vvMaxHeight, vv.height);
+  const keyboardOpen = vvMaxHeight - vv.height > 150;
+  if (composerDock) composerDock.classList.toggle('kb-open', keyboardOpen);
 }
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', syncAppHeight);

@@ -394,6 +394,13 @@ h1 {
   padding-bottom: calc(env(safe-area-inset-bottom) + 10px);
 }
 
+/* While the keyboard is up it already covers the home-indicator strip, so
+   the safe-area padding below is just dead space between the composer and
+   the keyboard — drop it until the keyboard closes again. */
+.composer-dock.kb-open {
+  padding-bottom: 10px;
+}
+
 .image-preview {
   flex: none;
   display: flex;
