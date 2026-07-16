@@ -2,7 +2,7 @@
 
 打字发送,Claude 用文字回复,同时用 TTS 把回复念出来。是聊天窗口模式(发一句、回一句)。语音输入暂时下线了(之前的浏览器语音识别不够稳定),之后如果要做"电话"式的实时语音对话会另外重新设计。
 
-TTS 默认用浏览器自带的 `speechSynthesis`;配好 MiniMax speech-02 的环境变量后会自动切换成克隆音色朗读,不用改代码。每条 AI 回复气泡旁边有个 ▶ 按钮,可以重新播放。
+TTS 默认用浏览器自带的 `speechSynthesis`;配好 ElevenLabs 或 MiniMax 的环境变量后会自动切换成克隆音色朗读,不用改代码(两个都配了优先用 ElevenLabs)。每条 AI 回复气泡旁边有个 ▶ 按钮,可以重新播放。
 
 ## 本地运行
 
@@ -44,6 +44,19 @@ alter table messages add column if not exists image_url text;
 alter table messages add column if not exists image_urls jsonb;
 ```
 
+## 接入 ElevenLabs 克隆音色
+
+1. 去 [elevenlabs.io](https://elevenlabs.io) 注册登录。
+2. 左侧菜单"音色"里点 + 号,上传一段你的干净音源做声音克隆(不需要本地脚本,网页里直接传就行)。
+3. 克隆好之后进这个音色的详情页,把它的 **Voice ID** 复制出来(一串字母数字,不是名字)。
+4. 右上角头像菜单 → **工作区设置** → **API Keys**,创建/复制一个 key。
+5. 填进 `.env`:`ELEVENLABS_API_KEY`、`ELEVENLABS_VOICE_ID`。
+6. 重启服务(或者线上改完 Render 环境变量重新部署),前端会自动切换成 ElevenLabs 朗读。
+
+`ELEVENLABS_MODEL` 默认 `eleven_multilingual_v2`(音质更自然,中文表现更好);想要更低延迟可以改成 `eleven_flash_v2_5`,但音质会打点折扣。免费账户每月有字符额度限制,超了要么等下个月刷新要么升级订阅。
+
+ElevenLabs 是直连官方接口,不走中转站,所以不会有中转站那种断线/不稳定的问题——这里说的只是"点 ▶ 按需合成一段语音"这种一次性请求,不是实时语音通话,稳定性和之前的 MiniMax 是同一个级别。
+
 ## 接入 MiniMax speech-02 克隆音色
 
 1. 去 [platform.minimax.io](https://platform.minimax.io)(国际版)或 [platform.minimaxi.com](https://platform.minimaxi.com)(国内版)注册,拿到 `API Key` 和 `Group ID`,填进 `.env` 的 `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID`。国内版记得把 `MINIMAX_API_HOST` 改成 `https://api.minimaxi.com`。
@@ -63,7 +76,7 @@ alter table messages add column if not exists image_urls jsonb;
 
 ## 已知限制
 
-- 没配 MiniMax 时用的是浏览器原生 `speechSynthesis`,音色取决于操作系统自带的语音包,不是高保真人声;配好 MiniMax 之后走克隆音色,见下面"接入 MiniMax speech-02 克隆音色"。
+- ElevenLabs 和 MiniMax 都没配时用的是浏览器原生 `speechSynthesis`,音色取决于操作系统自带的语音包,不是高保真人声;配好任意一个之后走克隆音色,见上面两节。
 - iOS Safari 对"没有直接用户点击就自动播放音频"管得很严,已经做了播放解锁处理,但如果换了浏览器/系统还是遇到听不到声音,先看是不是需要手动点 ▶ 按钮。
 - 中转站接口地址(`ANTHROPIC_BASE_URL`)不要带 `/v1` 后缀,SDK 会自动拼接,带了会变成 `/v1/v1/messages` 导致 404。
 

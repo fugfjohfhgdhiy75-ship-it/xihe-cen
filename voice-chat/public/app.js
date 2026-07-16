@@ -445,7 +445,7 @@ function playUrl(url) {
   });
 }
 
-async function fetchMinimaxAudioUrl(text) {
+async function fetchServerAudioUrl(text) {
   const res = await fetch('/api/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -472,10 +472,10 @@ function attachAudioLazy(bubble, text) {
   bubble.playBtn.classList.add('ready');
   bubble.playBtn.onclick = async () => {
     if (!spoken) { statusText.textContent = '这条只有动作描写,没有可朗读的台词'; return; }
-    if (ttsProvider !== 'minimax') { speakBrowser(spoken); return; }
+    if (ttsProvider === 'browser') { speakBrowser(spoken); return; }
     bubble.playBtn.disabled = true;
     try {
-      const url = await fetchMinimaxAudioUrl(spoken);
+      const url = await fetchServerAudioUrl(spoken);
       bubble.playBtn.onclick = () => playUrl(url);
       playUrl(url);
     } catch (err) {

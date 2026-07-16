@@ -34,6 +34,15 @@ const MINIMAX_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID && MINIMAX_VOI
 const MINIMAX_CLONE_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID);
 const CLONE_PASSCODE = process.env.CLONE_PASSCODE;
 
+// ElevenLabs is a direct (non-relay) official API — no billing workaround
+// needed here like with Claude, so this always hits api.elevenlabs.io.
+// When configured it takes priority over MiniMax (see /api/config below).
+const ELEVENLABS_API_HOST = process.env.ELEVENLABS_API_HOST || 'https://api.elevenlabs.io';
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID;
+const ELEVENLABS_MODEL = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';
+const ELEVENLABS_READY = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const SUPABASE_READY = Boolean(SUPABASE_URL && SUPABASE_KEY);
@@ -360,7 +369,8 @@ app.get('/api/debug-chat', async (req, res) => {
 });
 
 app.get('/api/config', (req, res) => {
-  res.json({ ttsProvider: MINIMAX_READY ? 'minimax' : 'browser', supabaseReady: SUPABASE_READY });
+  const ttsProvider = ELEVENLABS_READY ? 'elevenlabs' : (MINIMAX_READY ? 'minimax' : 'browser');
+  res.json({ ttsProvider, supabaseReady: SUPABASE_READY });
 });
 
 app.post('/api/extract-text', upload.single('file'), async (req, res) => {
@@ -393,14 +403,42 @@ app.post('/api/extract-text', upload.single('file'), async (req, res) => {
 });
 
 app.post('/api/tts', async (req, res) => {
-  if (!MINIMAX_READY) {
-    res.status(501).json({ error: 'MiniMax 未配置(缺 MINIMAX_API_KEY / MINIMAX_GROUP_ID / MINIMAX_VOICE_ID)' });
-    return;
-  }
-
   const { text } = req.body;
   if (!text || !text.trim()) {
     res.status(400).json({ error: 'text is required' });
+    return;
+  }
+
+  if (ELEVENLABS_READY) {
+    try {
+      const elRes = await fetch(`${ELEVENLABS_API_HOST}/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY,
+          'Content-Type': 'application/json',
+          Accept: 'audio/mpeg',
+        },
+        body: JSON.stringify({
+          text,
+          model_id: ELEVENLABS_MODEL,
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+      });
+      if (!elRes.ok) {
+        const errBody = await elRes.text().catch(() => '');
+        res.status(502).json({ error: 'ElevenLabs 返回异常: ' + errBody });
+        return;
+      }
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.send(Buffer.from(await elRes.arrayBuffer()));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+    return;
+  }
+
+  if (!MINIMAX_READY) {
+    res.status(501).json({ error: '没有配置任何 TTS 服务(ElevenLabs 或 MiniMax 都没配)' });
     return;
   }
 
