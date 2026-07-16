@@ -3,6 +3,13 @@ const express = require('express');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandledRejection (kept process alive):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException (kept process alive):', err);
+});
+
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
@@ -37,7 +44,16 @@ app.post('/api/chat', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  let ended = false;
+  const send = (payload) => {
+    if (ended || res.writableEnded) return;
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const finish = () => {
+    if (ended || res.writableEnded) return;
+    ended = true;
+    res.end();
+  };
 
   try {
     const stream = anthropic.messages.stream({
@@ -53,6 +69,7 @@ app.post('/api/chat', async (req, res) => {
       send({ text });
     });
     stream.on('end', async () => {
+      if (ended) return;
       if (receivedChars === 0) {
         try {
           const final = await stream.finalMessage();
@@ -65,19 +82,22 @@ app.post('/api/chat', async (req, res) => {
       } else {
         send({ done: true });
       }
-      res.end();
+      finish();
     });
     stream.on('error', (err) => {
       console.error('/api/chat stream error:', err);
-      send({ error: err.message });
-      res.end();
+      send({ error: (err && err.message) || String(err) });
+      finish();
     });
 
-    req.on('close', () => stream.abort());
+    req.on('close', () => {
+      finish();
+      stream.abort();
+    });
   } catch (err) {
     console.error('/api/chat handler error:', err);
     send({ error: err.message });
-    res.end();
+    finish();
   }
 });
 
