@@ -47,18 +47,35 @@ app.post('/api/chat', async (req, res) => {
       messages,
     });
 
-    stream.on('text', (text) => send({ text }));
-    stream.on('end', () => {
-      send({ done: true });
+    let receivedChars = 0;
+    stream.on('text', (text) => {
+      receivedChars += text.length;
+      send({ text });
+    });
+    stream.on('end', async () => {
+      if (receivedChars === 0) {
+        try {
+          const final = await stream.finalMessage();
+          console.error('/api/chat: empty stream, finalMessage =', JSON.stringify(final));
+          send({ error: `模型没返回任何文字(stop_reason=${final.stop_reason}),把这条截图发给开发者` });
+        } catch (e) {
+          console.error('/api/chat: empty stream, finalMessage() also failed:', e);
+          send({ error: '模型没返回任何文字,而且拿不到详细原因,把 Render Logs 截图发给开发者' });
+        }
+      } else {
+        send({ done: true });
+      }
       res.end();
     });
     stream.on('error', (err) => {
+      console.error('/api/chat stream error:', err);
       send({ error: err.message });
       res.end();
     });
 
     req.on('close', () => stream.abort());
   } catch (err) {
+    console.error('/api/chat handler error:', err);
     send({ error: err.message });
     res.end();
   }
