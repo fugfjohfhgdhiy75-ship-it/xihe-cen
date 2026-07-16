@@ -425,6 +425,38 @@ app.post('/api/extract-text', upload.single('file'), async (req, res) => {
   }
 });
 
+// Stage directions like "(笑着)" carry real performance info, but only
+// ElevenLabs' v3 model understands English bracket tags like [laughs] — and
+// only when it's actually the engine handling this request. Which engine
+// that is isn't decided until we're inside /api/tts (ElevenLabs can fail at
+// runtime — quota, outage — and fall back to MiniMax), so text prep has to
+// happen per-provider, here, rather than upstream in the client.
+const ACTION_TAG_MAP = [
+  [/笑/, 'laughs'],
+  [/叹气|叹了口气|无奈/, 'sighs'],
+  [/小声|轻声|低声|悄悄|耳朵/, 'whispers'],
+  [/喘/, 'breathing heavily'],
+  [/哭|抽泣|哽咽|红了眼眶/, 'crying'],
+  [/生气|炸毛|瞪/, 'angry'],
+  [/兴奋|激动/, 'excited'],
+];
+
+function actionToAudioTag(action) {
+  const hit = ACTION_TAG_MAP.find(([re]) => re.test(action));
+  return hit ? `[${hit[1]}] ` : '';
+}
+
+function prepForElevenLabs(text) {
+  return text
+    .replace(/[（(]([^）)]*)[）)]/g, (_, inner) => actionToAudioTag(inner))
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+
+function prepForMiniMax(text) {
+  return text.replace(/[（(][^）)]*[）)]/g, '').replace(/[ \t]+/g, ' ').trim();
+}
+
 async function synthesizeElevenLabs(text) {
   const elRes = await fetch(`${ELEVENLABS_API_HOST}/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
     method: 'POST',
@@ -434,7 +466,7 @@ async function synthesizeElevenLabs(text) {
       Accept: 'audio/mpeg',
     },
     body: JSON.stringify({
-      text,
+      text: prepForElevenLabs(text),
       model_id: ELEVENLABS_MODEL,
       voice_settings: {
         stability: ELEVENLABS_STABILITY,
@@ -471,7 +503,7 @@ async function synthesizeMiniMax(text) {
     },
     body: JSON.stringify({
       model: MINIMAX_MODEL,
-      text,
+      text: prepForMiniMax(text),
       stream: false,
       output_format: 'hex',
       voice_setting: {
