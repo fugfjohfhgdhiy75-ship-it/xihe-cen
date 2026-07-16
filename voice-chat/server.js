@@ -28,6 +28,7 @@ const MINIMAX_API_KEY = process.env.MINIMAX_API_KEY;
 const MINIMAX_GROUP_ID = process.env.MINIMAX_GROUP_ID;
 const MINIMAX_VOICE_ID = process.env.MINIMAX_VOICE_ID;
 const MINIMAX_MODEL = process.env.MINIMAX_MODEL || 'speech-02-turbo';
+const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION || 'happy';
 const MINIMAX_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID && MINIMAX_VOICE_ID);
 const MINIMAX_CLONE_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID);
 const CLONE_PASSCODE = process.env.CLONE_PASSCODE;
@@ -177,6 +178,7 @@ app.post('/api/tts', async (req, res) => {
           speed: 1,
           vol: 1,
           pitch: 0,
+          emotion: MINIMAX_EMOTION,
         },
         audio_setting: {
           sample_rate: 32000,
