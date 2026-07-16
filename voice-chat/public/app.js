@@ -8,15 +8,32 @@ const sessionTitle = document.getElementById('sessionTitle');
 // layout gets covered. Instead the composer dock is `position: fixed` to
 // the viewport (see style.css .composer-dock) and JS slides it up by
 // exactly the keyboard's height using window.visualViewport, which DOES
-// track the keyboard. This is the standard, reliable pattern for this
-// problem — much less prone to the intermittent jump than resizing the
-// whole app shell on every viewport event.
+// track the keyboard.
+//
+// window.innerHeight is NOT a safe "no keyboard" baseline on iOS: it stays
+// pinned to the tallest (URL-bar-hidden) size, while visualViewport.height
+// also shrinks by ~50-100px whenever Safari's address bar is showing, with
+// no keyboard involved at all. Comparing against innerHeight counted that
+// address-bar chrome as "keyboard" and shoved the dock up too far, leaving
+// the gap you saw above the keyboard. Instead track the tallest
+// visualViewport height seen recently as the baseline, and only treat a
+// *large* drop from it (bigger than any plausible address-bar change) as
+// the keyboard opening.
 const composerDock = document.getElementById('composerDock');
+const KEYBOARD_THRESHOLD = 150;
+let vvBaseline = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+
 function syncComposerDock() {
   if (!composerDock || !window.visualViewport) return;
   const vv = window.visualViewport;
-  const keyboardInset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-  composerDock.style.transform = keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : '';
+  const drop = vvBaseline - vv.height;
+  if (drop > KEYBOARD_THRESHOLD) {
+    const inset = Math.max(0, vvBaseline - vv.height - vv.offsetTop);
+    composerDock.style.transform = `translateY(-${inset}px)`;
+  } else {
+    vvBaseline = Math.max(vvBaseline, vv.height);
+    composerDock.style.transform = '';
+  }
   document.documentElement.style.setProperty('--dock-h', composerDock.offsetHeight + 'px');
 }
 if (window.visualViewport) {
