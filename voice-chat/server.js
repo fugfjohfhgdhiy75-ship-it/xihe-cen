@@ -419,6 +419,77 @@ app.post('/api/extract-text', upload.single('file'), async (req, res) => {
   }
 });
 
+async function synthesizeElevenLabs(text) {
+  const elRes = await fetch(`${ELEVENLABS_API_HOST}/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': ELEVENLABS_API_KEY,
+      'Content-Type': 'application/json',
+      Accept: 'audio/mpeg',
+    },
+    body: JSON.stringify({
+      text,
+      model_id: ELEVENLABS_MODEL,
+      voice_settings: {
+        stability: ELEVENLABS_STABILITY,
+        similarity_boost: ELEVENLABS_SIMILARITY,
+        style: ELEVENLABS_STYLE,
+        speed: ELEVENLABS_SPEED,
+        use_speaker_boost: true,
+      },
+    }),
+  });
+  if (!elRes.ok) {
+    const errBody = await elRes.text().catch(() => '');
+    console.error('ElevenLabs TTS error:', elRes.status, errBody);
+    throw new Error('ElevenLabs 返回异常(' + elRes.status + '): ' + errBody);
+  }
+  const audioBuf = Buffer.from(await elRes.arrayBuffer());
+  // A real mp3 clip is never this small — a few dozen bytes back with a 200
+  // status means something upstream silently gave us junk (e.g. no access
+  // to this model on the account) instead of a proper HTTP error.
+  if (audioBuf.length < 500) {
+    console.error('ElevenLabs TTS suspiciously small response:', audioBuf.length, 'bytes:', audioBuf.toString('utf8').slice(0, 300));
+    throw new Error('ElevenLabs 返回的音频内容异常(只有 ' + audioBuf.length + ' 字节),可能是账号没有 ' + ELEVENLABS_MODEL + ' 模型的使用权限');
+  }
+  return audioBuf;
+}
+
+async function synthesizeMiniMax(text) {
+  const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/t2a_v2?GroupId=${MINIMAX_GROUP_ID}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${MINIMAX_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MINIMAX_MODEL,
+      text,
+      stream: false,
+      output_format: 'hex',
+      voice_setting: {
+        voice_id: MINIMAX_VOICE_ID,
+        speed: 1,
+        vol: 1,
+        pitch: 0,
+        emotion: MINIMAX_EMOTION,
+      },
+      audio_setting: {
+        sample_rate: 32000,
+        bitrate: 128000,
+        format: 'mp3',
+        channel: 1,
+      },
+    }),
+  });
+  const json = await mmRes.json();
+  if (!json.data || !json.data.audio) {
+    console.error('MiniMax TTS error:', JSON.stringify(json.base_resp || json));
+    throw new Error('MiniMax 返回异常: ' + JSON.stringify(json.base_resp || json));
+  }
+  return Buffer.from(json.data.audio, 'hex');
+}
+
 app.post('/api/tts', async (req, res) => {
   const { text } = req.body;
   if (!text || !text.trim()) {
@@ -426,92 +497,41 @@ app.post('/api/tts', async (req, res) => {
     return;
   }
 
-  if (ELEVENLABS_READY) {
-    try {
-      const elRes = await fetch(`${ELEVENLABS_API_HOST}/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
-        method: 'POST',
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY,
-          'Content-Type': 'application/json',
-          Accept: 'audio/mpeg',
-        },
-        body: JSON.stringify({
-          text,
-          model_id: ELEVENLABS_MODEL,
-          voice_settings: {
-            stability: ELEVENLABS_STABILITY,
-            similarity_boost: ELEVENLABS_SIMILARITY,
-            style: ELEVENLABS_STYLE,
-            speed: ELEVENLABS_SPEED,
-            use_speaker_boost: true,
-          },
-        }),
-      });
-      if (!elRes.ok) {
-        const errBody = await elRes.text().catch(() => '');
-        console.error('ElevenLabs TTS error:', elRes.status, errBody);
-        res.status(502).json({ error: 'ElevenLabs 返回异常(' + elRes.status + '): ' + errBody });
-        return;
-      }
-      const audioBuf = Buffer.from(await elRes.arrayBuffer());
-      // A real mp3 clip is never this small — a few dozen bytes back with a
-      // 200 status means something upstream silently gave us junk (e.g. no
-      // access to this model on the account) instead of a proper HTTP error.
-      if (audioBuf.length < 500) {
-        console.error('ElevenLabs TTS suspiciously small response:', audioBuf.length, 'bytes:', audioBuf.toString('utf8').slice(0, 300));
-        res.status(502).json({ error: 'ElevenLabs 返回的音频内容异常(只有 ' + audioBuf.length + ' 字节),可能是账号没有 ' + ELEVENLABS_MODEL + ' 模型的使用权限' });
-        return;
-      }
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.send(audioBuf);
-    } catch (err) {
-      console.error('ElevenLabs TTS threw:', err);
-      res.status(500).json({ error: err.message });
-    }
-    return;
-  }
-
-  if (!MINIMAX_READY) {
+  if (!ELEVENLABS_READY && !MINIMAX_READY) {
     res.status(501).json({ error: '没有配置任何 TTS 服务(ElevenLabs 或 MiniMax 都没配)' });
     return;
   }
 
-  try {
-    const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/t2a_v2?GroupId=${MINIMAX_GROUP_ID}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${MINIMAX_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MINIMAX_MODEL,
-        text,
-        stream: false,
-        output_format: 'hex',
-        voice_setting: {
-          voice_id: MINIMAX_VOICE_ID,
-          speed: 1,
-          vol: 1,
-          pitch: 0,
-          emotion: MINIMAX_EMOTION,
-        },
-        audio_setting: {
-          sample_rate: 32000,
-          bitrate: 128000,
-          format: 'mp3',
-          channel: 1,
-        },
-      }),
-    });
-
-    const json = await mmRes.json();
-    if (!json.data || !json.data.audio) {
-      res.status(502).json({ error: 'MiniMax 返回异常: ' + JSON.stringify(json.base_resp || json) });
+  // Try ElevenLabs first (it's the nicer voice when it works), but don't
+  // let a runtime failure there (quota exceeded, outage, no model access)
+  // leave the user with silence if MiniMax is configured and available —
+  // fall back to it instead of just erroring out.
+  let elError = null;
+  if (ELEVENLABS_READY) {
+    try {
+      const audioBuf = await synthesizeElevenLabs(text);
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.send(audioBuf);
       return;
+    } catch (err) {
+      elError = err;
+      if (!MINIMAX_READY) {
+        res.status(502).json({ error: err.message });
+        return;
+      }
+      console.error('ElevenLabs failed, falling back to MiniMax:', err.message);
     }
+  }
 
+  if (!MINIMAX_READY) {
+    res.status(502).json({ error: elError ? elError.message : 'TTS 失败' });
+    return;
+  }
+
+  try {
+    const audioBuf = await synthesizeMiniMax(text);
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.send(Buffer.from(json.data.audio, 'hex'));
+    res.send(audioBuf);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
