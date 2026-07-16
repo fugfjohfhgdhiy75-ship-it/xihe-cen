@@ -3,6 +3,25 @@ const transcriptEl = document.getElementById('transcript');
 const setupNotice = document.getElementById('setupNotice');
 const sessionTitle = document.getElementById('sessionTitle');
 
+// iOS Safari: `dvh` accounts for the URL bar hiding/showing, but NOT for
+// the on-screen keyboard. Without this, the keyboard covers the composer
+// (or the whole page jumps) instead of the layout shrinking to fit above
+// it. window.visualViewport reflects the actual visible area, keyboard
+// included, so drive the app shell's height from that directly.
+function syncAppHeightToViewport() {
+  const appEl = document.querySelector('.app');
+  if (!appEl || !window.visualViewport) return;
+  appEl.style.height = window.visualViewport.height + 'px';
+  // iOS sometimes scrolls the document to bring the focused input into
+  // view even though nothing here is meant to scroll; snap it back.
+  window.scrollTo(0, 0);
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncAppHeightToViewport);
+  window.visualViewport.addEventListener('scroll', syncAppHeightToViewport);
+  syncAppHeightToViewport();
+}
+
 const sessionsBtn = document.getElementById('sessionsBtn');
 const sessionsPanel = document.getElementById('sessionsPanel');
 const sessionsList = document.getElementById('sessionsList');
