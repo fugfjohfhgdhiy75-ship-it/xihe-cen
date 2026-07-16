@@ -101,6 +101,37 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.get('/api/debug-chat', async (req, res) => {
+  const started = Date.now();
+  try {
+    const message = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 50,
+      messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }],
+    });
+    res.json({
+      ok: true,
+      ms: Date.now() - started,
+      model: MODEL,
+      baseURL: process.env.ANTHROPIC_BASE_URL || '(official)',
+      stop_reason: message.stop_reason,
+      content: message.content,
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      ms: Date.now() - started,
+      model: MODEL,
+      baseURL: process.env.ANTHROPIC_BASE_URL || '(official)',
+      name: err && err.name,
+      message: err && err.message,
+      status: err && err.status,
+      error: err && err.error,
+      stack: err && err.stack,
+    });
+  }
+});
+
 app.get('/api/config', (req, res) => {
   res.json({ ttsProvider: MINIMAX_READY ? 'minimax' : 'browser' });
 });
