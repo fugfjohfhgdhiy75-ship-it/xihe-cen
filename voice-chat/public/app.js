@@ -1,7 +1,4 @@
-const callBtn = document.getElementById('callBtn');
-const callIcon = document.getElementById('callIcon');
 const statusText = document.getElementById('statusText');
-const interruptBtn = document.getElementById('interruptBtn');
 const transcriptEl = document.getElementById('transcript');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
@@ -9,19 +6,17 @@ const closeSettings = document.getElementById('closeSettings');
 const systemPromptEl = document.getElementById('systemPrompt');
 const sttLangEl = document.getElementById('sttLang');
 const voiceSelectEl = document.getElementById('voiceSelect');
+const micBtn = document.getElementById('micBtn');
+const textInput = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
 
 const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-let recognition = null;
-let callActive = false;
-let currentTranscript = null;
 let messages = [];
-let abortController = null;
-let pendingUtterances = 0;
-let streamDone = true;
 let selectedVoice = null;
 let ttsProvider = 'browser';
-let audioQueueTail = Promise.resolve();
+let recognizing = false;
+let activeRecognition = null;
 
 const ttsPlayer = document.getElementById('ttsPlayer');
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -35,28 +30,6 @@ const configPromise = fetch('/api/config')
   .then((r) => r.json())
   .then((cfg) => { ttsProvider = cfg.ttsProvider || 'browser'; })
   .catch(() => { ttsProvider = 'browser'; });
-
-function setState(state) {
-  callBtn.className = 'call-btn ' + state;
-  interruptBtn.classList.toggle('hidden', state !== 'thinking' && state !== 'speaking');
-  const labels = {
-    idle: '点击下方按钮开始通话',
-    listening: '在听...',
-    thinking: '思考中...',
-    speaking: '说话中...',
-  };
-  statusText.textContent = labels[state] || '';
-  callIcon.textContent = state === 'idle' ? '🎙️' : (state === 'listening' ? '🎧' : (state === 'thinking' ? '…' : '🔊'));
-}
-
-function appendBubble(role, text) {
-  const div = document.createElement('div');
-  div.className = 'bubble ' + role;
-  div.textContent = text;
-  transcriptEl.appendChild(div);
-  transcriptEl.scrollTop = transcriptEl.scrollHeight;
-  return div;
-}
 
 function loadVoices() {
   const voices = speechSynthesis.getVoices();
@@ -82,25 +55,42 @@ voiceSelectEl.addEventListener('change', () => {
 settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
 closeSettings.addEventListener('click', () => settingsPanel.classList.add('hidden'));
 
-function speakSentence(text) {
-  if (!text.trim()) return;
-  if (ttsProvider === 'minimax') {
-    speakSentenceMinimax(text);
-  } else {
-    speakSentenceBrowser(text);
+function appendBubble(role, text) {
+  const div = document.createElement('div');
+  div.className = 'bubble ' + role;
+
+  const textEl = document.createElement('span');
+  textEl.className = 'bubble-text';
+  textEl.textContent = text;
+  div.appendChild(textEl);
+
+  let playBtn = null;
+  if (role === 'assistant') {
+    playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'play-btn';
+    playBtn.textContent = '▶';
+    div.appendChild(playBtn);
   }
+
+  transcriptEl.appendChild(div);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  return { el: div, textEl, playBtn };
 }
 
-function speakSentenceBrowser(text) {
+function speakBrowser(text) {
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = sttLangEl.value;
   if (selectedVoice) utter.voice = selectedVoice;
-  pendingUtterances++;
-  utter.onend = utter.onerror = () => {
-    pendingUtterances--;
-    maybeReturnToListening();
-  };
   speechSynthesis.speak(utter);
+}
+
+function playUrl(url) {
+  ttsPlayer.pause();
+  ttsPlayer.src = url;
+  ttsPlayer.play().catch(() => {
+    statusText.textContent = '自动播放被拦截,点一下气泡上的 ▶ 按钮';
+  });
 }
 
 async function fetchMinimaxAudioUrl(text) {
@@ -117,118 +107,48 @@ async function fetchMinimaxAudioUrl(text) {
   return URL.createObjectURL(blob);
 }
 
-function playQueuedAudio(urlPromise) {
-  return urlPromise
-    .then((url) => new Promise((resolve) => {
-      const cleanup = () => {
-        URL.revokeObjectURL(url);
-        ttsPlayer.onended = null;
-        ttsPlayer.onerror = null;
-        // Fully release the audio session (not just pause) so iOS frees
-        // the playback focus before we try to grab the mic again.
-        ttsPlayer.removeAttribute('src');
-        ttsPlayer.load();
-        resolve();
-      };
-      ttsPlayer.onended = cleanup;
-      ttsPlayer.onerror = cleanup;
-      ttsPlayer.src = url;
-      ttsPlayer.play().catch((err) => {
-        statusText.textContent = '播放被拦截: ' + err.message;
-        cleanup();
+function attachAudio(bubble, text) {
+  if (ttsProvider === 'minimax') {
+    fetchMinimaxAudioUrl(text)
+      .then((url) => {
+        bubble.playBtn.classList.add('ready');
+        bubble.playBtn.onclick = () => playUrl(url);
+        playUrl(url);
+      })
+      .catch((err) => {
+        statusText.textContent = 'TTS 出错: ' + err.message;
       });
-    }))
-    .catch((err) => {
-      statusText.textContent = 'TTS 出错: ' + err.message;
-    });
-}
-
-function speakSentenceMinimax(text) {
-  pendingUtterances++;
-  const audioPromise = fetchMinimaxAudioUrl(text);
-  audioQueueTail = audioQueueTail.then(() => playQueuedAudio(audioPromise)).finally(() => {
-    pendingUtterances--;
-    maybeReturnToListening();
-  });
-}
-
-function stopAllAudio() {
-  speechSynthesis.cancel();
-  ttsPlayer.pause();
-  audioQueueTail = Promise.resolve();
-  pendingUtterances = 0;
-}
-
-function maybeReturnToListening() {
-  if (callActive && streamDone && pendingUtterances <= 0) {
-    // Small buffer after audio playback fully releases before grabbing
-    // the mic again — helps iOS Safari switch the audio session category
-    // from playback back to recording cleanly.
-    setTimeout(() => {
-      if (callActive && streamDone && pendingUtterances <= 0) startListening();
-    }, 300);
+  } else {
+    bubble.playBtn.classList.add('ready');
+    bubble.playBtn.onclick = () => speakBrowser(text);
+    speakBrowser(text);
   }
 }
 
-function initRecognition() {
-  recognition = new SpeechRecognitionImpl();
-  recognition.lang = sttLangEl.value;
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-
-  recognition.onresult = (e) => {
-    const result = e.results[e.results.length - 1];
-    if (result.isFinal) {
-      currentTranscript = result[0].transcript.trim();
-    }
-  };
-
-  recognition.onend = () => {
-    if (!callActive) return;
-    if (currentTranscript) {
-      const t = currentTranscript;
-      currentTranscript = null;
-      handleUserUtterance(t);
-    } else {
-      startListening();
-    }
-  };
-
-  recognition.onerror = (e) => {
-    if (e.error === 'aborted' || e.error === 'no-speech') return;
-    statusText.textContent = '识别出错: ' + e.error;
-  };
+function setBusy(busy) {
+  sendBtn.disabled = busy;
+  micBtn.disabled = busy;
 }
 
-function startListening() {
-  if (!callActive) return;
-  setState('listening');
-  try {
-    recognition.lang = sttLangEl.value;
-    recognition.start();
-  } catch (err) {
-    // already started; ignore
-  }
-}
+async function sendMessage(rawText) {
+  const text = (rawText || '').trim();
+  if (!text) return;
 
-async function handleUserUtterance(text) {
+  await configPromise;
   appendBubble('user', text);
   messages.push({ role: 'user', content: text });
-  setState('thinking');
+  textInput.value = '';
+  setBusy(true);
+  statusText.textContent = '思考中...';
 
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
-  let sentenceBuffer = '';
-  streamDone = false;
-  abortController = new AbortController();
 
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages, system: systemPromptEl.value || undefined }),
-      signal: abortController.signal,
     });
 
     const reader = res.body.getReader();
@@ -247,69 +167,94 @@ async function handleUserUtterance(text) {
         if (payload.error) throw new Error(payload.error);
         if (payload.text) {
           fullText += payload.text;
-          sentenceBuffer += payload.text;
-          assistantBubble.textContent = fullText;
+          assistantBubble.textEl.textContent = fullText;
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
-          setState('speaking');
-
-          const match = sentenceBuffer.match(/^(.*?[。!?\n.!?])(.*)$/s);
-          if (match) {
-            speakSentence(match[1]);
-            sentenceBuffer = match[2];
-          }
         }
       }
     }
 
-    if (sentenceBuffer.trim()) speakSentence(sentenceBuffer);
-    messages.push({ role: 'assistant', content: fullText });
+    if (fullText) {
+      messages.push({ role: 'assistant', content: fullText });
+      attachAudio(assistantBubble, fullText);
+      statusText.textContent = '';
+    } else {
+      assistantBubble.textEl.textContent = '(没有收到回复)';
+      statusText.textContent = '';
+    }
   } catch (err) {
-    if (err.name !== 'AbortError') {
-      assistantBubble.textContent = '(出错了: ' + err.message + ')';
-    }
+    assistantBubble.textEl.textContent = '(出错了: ' + err.message + ')';
+    statusText.textContent = '';
   } finally {
-    streamDone = true;
-    maybeReturnToListening();
+    setBusy(false);
   }
 }
 
-async function startCall() {
-  await configPromise;
-  callActive = true;
-  messages = [];
-  transcriptEl.innerHTML = '';
-  initRecognition();
-  startListening();
-}
+function startVoiceInput() {
+  const rec = new SpeechRecognitionImpl();
+  rec.lang = sttLangEl.value;
+  rec.continuous = false;
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
 
-function endCall() {
-  callActive = false;
-  streamDone = true;
-  if (recognition) {
-    try { recognition.abort(); } catch (e) {}
-  }
-  stopAllAudio();
-  if (abortController) abortController.abort();
-  setState('idle');
-}
+  let transcript = '';
 
-callBtn.addEventListener('click', () => {
-  if (callActive) {
-    endCall();
-  } else {
-    if (!SpeechRecognitionImpl) {
-      alert('这个浏览器不支持语音识别,换 Chrome 或 Edge 试试。');
-      return;
+  rec.onresult = (e) => {
+    const result = e.results[e.results.length - 1];
+    if (result.isFinal) transcript = result[0].transcript.trim();
+  };
+
+  rec.onerror = (e) => {
+    if (e.error !== 'aborted' && e.error !== 'no-speech') {
+      statusText.textContent = '识别出错: ' + e.error;
     }
+  };
+
+  rec.onend = () => {
+    recognizing = false;
+    activeRecognition = null;
+    micBtn.classList.remove('recording');
+    if (transcript) {
+      sendMessage(transcript);
+    } else if (!statusText.textContent.startsWith('识别出错')) {
+      statusText.textContent = '';
+    }
+  };
+
+  activeRecognition = rec;
+  recognizing = true;
+  micBtn.classList.add('recording');
+  statusText.textContent = '在听...';
+  try {
+    rec.start();
+  } catch (err) {
+    recognizing = false;
+    activeRecognition = null;
+    micBtn.classList.remove('recording');
+  }
+}
+
+micBtn.addEventListener('click', () => {
+  if (!SpeechRecognitionImpl) {
+    alert('这个浏览器不支持语音识别,换 Chrome 或 Edge 试试。');
+    return;
+  }
+  unlockAudioPlayback();
+  if (recognizing) {
+    if (activeRecognition) activeRecognition.stop();
+    return;
+  }
+  startVoiceInput();
+});
+
+sendBtn.addEventListener('click', () => {
+  unlockAudioPlayback();
+  sendMessage(textInput.value);
+});
+
+textInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
     unlockAudioPlayback();
-    startCall();
+    sendMessage(textInput.value);
   }
 });
-
-interruptBtn.addEventListener('click', () => {
-  stopAllAudio();
-  if (abortController) abortController.abort();
-  if (callActive) startListening();
-});
-
-setState('idle');
