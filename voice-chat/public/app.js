@@ -22,7 +22,14 @@ let streamDone = true;
 let selectedVoice = null;
 let ttsProvider = 'browser';
 let audioQueueTail = Promise.resolve();
-let currentAudioEl = null;
+
+const ttsPlayer = document.getElementById('ttsPlayer');
+const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+function unlockAudioPlayback() {
+  ttsPlayer.src = SILENT_WAV;
+  ttsPlayer.play().catch(() => {});
+}
 
 const configPromise = fetch('/api/config')
   .then((r) => r.json())
@@ -113,16 +120,19 @@ async function fetchMinimaxAudioUrl(text) {
 function playQueuedAudio(urlPromise) {
   return urlPromise
     .then((url) => new Promise((resolve) => {
-      const audio = new Audio(url);
-      currentAudioEl = audio;
       const cleanup = () => {
         URL.revokeObjectURL(url);
-        if (currentAudioEl === audio) currentAudioEl = null;
+        ttsPlayer.onended = null;
+        ttsPlayer.onerror = null;
         resolve();
       };
-      audio.onended = cleanup;
-      audio.onerror = cleanup;
-      audio.play().catch(cleanup);
+      ttsPlayer.onended = cleanup;
+      ttsPlayer.onerror = cleanup;
+      ttsPlayer.src = url;
+      ttsPlayer.play().catch((err) => {
+        statusText.textContent = '播放被拦截: ' + err.message;
+        cleanup();
+      });
     }))
     .catch((err) => {
       statusText.textContent = 'TTS 出错: ' + err.message;
@@ -140,11 +150,7 @@ function speakSentenceMinimax(text) {
 
 function stopAllAudio() {
   speechSynthesis.cancel();
-  if (currentAudioEl) {
-    currentAudioEl.pause();
-    currentAudioEl.currentTime = 0;
-    currentAudioEl = null;
-  }
+  ttsPlayer.pause();
   audioQueueTail = Promise.resolve();
   pendingUtterances = 0;
 }
@@ -286,6 +292,7 @@ callBtn.addEventListener('click', () => {
       alert('这个浏览器不支持语音识别,换 Chrome 或 Edge 试试。');
       return;
     }
+    unlockAudioPlayback();
     startCall();
   }
 });
