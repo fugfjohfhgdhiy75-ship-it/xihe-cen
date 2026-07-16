@@ -22,6 +22,19 @@ if (window.visualViewport) {
   syncAppHeightToViewport();
 }
 
+// Fallback: on some iOS versions the visualViewport resize event fires late
+// or not at all right when the keyboard opens/closes, so the composer still
+// jumps for a beat. Re-sync a few times after focus/blur on any text field,
+// covering both the keyboard-open and keyboard-close animations (~300ms).
+document.addEventListener('focusin', (e) => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeightToViewport, ms));
+});
+document.addEventListener('focusout', (e) => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeightToViewport, ms));
+});
+
 const sessionsBtn = document.getElementById('sessionsBtn');
 const sessionsPanel = document.getElementById('sessionsPanel');
 const sessionsList = document.getElementById('sessionsList');
