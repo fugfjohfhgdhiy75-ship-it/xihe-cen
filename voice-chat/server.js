@@ -290,6 +290,12 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemOverride || systemPrompt];
     if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
+    // Long conversations tend to make the model imitate its own earlier
+    // replies (repeating the same fixed phrases/reactions) rather than
+    // responding freshly to what's actually being said right now — this is
+    // what reads as "getting duller/more mechanical the longer we talk."
+    // Counter that explicitly rather than just relying on prompt tone.
+    systemParts.push('不管这段对话已经聊了多久、之前说过多少次类似的话,每次都要重新读一遍用户刚才说的话,给出真正对应这句话的反应——不要因为之前用过某个说法、某个反应,这次就照搬重复。保持第一次开口时那种专注和灵敏,不要变得公式化或者敷衍。');
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
     const messages = (history || []).map((m) => ({ role: m.role, content: m.content }));
