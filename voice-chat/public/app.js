@@ -302,6 +302,7 @@ async function selectSession(id) {
   try {
     const res = await fetch(`/api/sessions/${id}/messages`);
     const msgs = await res.json();
+    if (!res.ok) throw new Error(msgs.error || `HTTP ${res.status}`);
     msgs.forEach((m) => {
       const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
       const bubble = appendBubble(m.role, m.content, imageUrls, m.id);
