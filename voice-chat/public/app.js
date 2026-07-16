@@ -3,37 +3,28 @@ const transcriptEl = document.getElementById('transcript');
 const setupNotice = document.getElementById('setupNotice');
 const sessionTitle = document.getElementById('sessionTitle');
 
-// iOS Safari: `dvh` accounts for the URL bar hiding/showing, but NOT for
-// the on-screen keyboard. Without this, the keyboard covers the composer
-// (or the whole page jumps) instead of the layout shrinking to fit above
-// it. window.visualViewport reflects the actual visible area, keyboard
-// included, so drive the app shell's height from that directly.
-function syncAppHeightToViewport() {
-  const appEl = document.querySelector('.app');
-  if (!appEl || !window.visualViewport) return;
-  appEl.style.height = window.visualViewport.height + 'px';
-  // iOS sometimes scrolls the document to bring the focused input into
-  // view even though nothing here is meant to scroll; snap it back.
-  window.scrollTo(0, 0);
+// iOS Safari never shrinks the layout viewport for the on-screen keyboard —
+// it just overlays it — so a normal "flex column, composer at the bottom"
+// layout gets covered. Instead the composer dock is `position: fixed` to
+// the viewport (see style.css .composer-dock) and JS slides it up by
+// exactly the keyboard's height using window.visualViewport, which DOES
+// track the keyboard. This is the standard, reliable pattern for this
+// problem — much less prone to the intermittent jump than resizing the
+// whole app shell on every viewport event.
+const composerDock = document.getElementById('composerDock');
+function syncComposerDock() {
+  if (!composerDock || !window.visualViewport) return;
+  const vv = window.visualViewport;
+  const keyboardInset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  composerDock.style.transform = keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : '';
+  document.documentElement.style.setProperty('--dock-h', composerDock.offsetHeight + 'px');
 }
 if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', syncAppHeightToViewport);
-  window.visualViewport.addEventListener('scroll', syncAppHeightToViewport);
-  syncAppHeightToViewport();
+  window.visualViewport.addEventListener('resize', syncComposerDock);
+  window.visualViewport.addEventListener('scroll', syncComposerDock);
 }
-
-// Fallback: on some iOS versions the visualViewport resize event fires late
-// or not at all right when the keyboard opens/closes, so the composer still
-// jumps for a beat. Re-sync a few times after focus/blur on any text field,
-// covering both the keyboard-open and keyboard-close animations (~300ms).
-document.addEventListener('focusin', (e) => {
-  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
-  [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeightToViewport, ms));
-});
-document.addEventListener('focusout', (e) => {
-  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
-  [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeightToViewport, ms));
-});
+window.addEventListener('load', syncComposerDock);
+syncComposerDock();
 
 const sessionsBtn = document.getElementById('sessionsBtn');
 const sessionsPanel = document.getElementById('sessionsPanel');
@@ -50,7 +41,6 @@ const voiceSelectEl = document.getElementById('voiceSelect');
 const docUpload = document.getElementById('docUpload');
 const docUploadStatus = document.getElementById('docUploadStatus');
 
-const micBtn = document.getElementById('micBtn');
 const textInput = document.getElementById('textInput');
 const sendBtn = document.getElementById('sendBtn');
 const imageBtn = document.getElementById('imageBtn');
@@ -59,14 +49,10 @@ const imagePreview = document.getElementById('imagePreview');
 const imagePreviewImg = document.getElementById('imagePreviewImg');
 const imagePreviewRemove = document.getElementById('imagePreviewRemove');
 
-const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
-
 let selectedVoice = null;
 let ttsProvider = 'browser';
 let supabaseReady = false;
-let recognizing = false;
 let selectedImageFile = null;
-let activeRecognition = null;
 let sessions = [];
 let currentSessionId = null;
 
@@ -80,12 +66,10 @@ function unlockAudioPlayback() {
 
 function setBusy(busy) {
   sendBtn.disabled = busy;
-  micBtn.disabled = busy;
 }
 
 function disableComposer() {
   sendBtn.disabled = true;
-  micBtn.disabled = true;
   textInput.disabled = true;
 }
 
@@ -540,63 +524,6 @@ async function sendMessage(rawText) {
   }
 }
 
-function startVoiceInput() {
-  const rec = new SpeechRecognitionImpl();
-  rec.lang = sttLangEl.value;
-  rec.continuous = false;
-  rec.interimResults = false;
-  rec.maxAlternatives = 1;
-
-  let transcript = '';
-
-  rec.onresult = (e) => {
-    const result = e.results[e.results.length - 1];
-    if (result.isFinal) transcript = result[0].transcript.trim();
-  };
-
-  rec.onerror = (e) => {
-    if (e.error !== 'aborted' && e.error !== 'no-speech') {
-      statusText.textContent = '识别出错: ' + e.error;
-    }
-  };
-
-  rec.onend = () => {
-    recognizing = false;
-    activeRecognition = null;
-    micBtn.classList.remove('recording');
-    if (transcript) {
-      sendMessage(transcript);
-    } else if (!statusText.textContent.startsWith('识别出错')) {
-      statusText.textContent = '';
-    }
-  };
-
-  activeRecognition = rec;
-  recognizing = true;
-  micBtn.classList.add('recording');
-  statusText.textContent = '在听...';
-  try {
-    rec.start();
-  } catch (err) {
-    recognizing = false;
-    activeRecognition = null;
-    micBtn.classList.remove('recording');
-  }
-}
-
-micBtn.addEventListener('click', () => {
-  if (!SpeechRecognitionImpl) {
-    alert('这个浏览器不支持语音识别,换 Chrome 或 Edge 试试。');
-    return;
-  }
-  unlockAudioPlayback();
-  if (recognizing) {
-    if (activeRecognition) activeRecognition.stop();
-    return;
-  }
-  startVoiceInput();
-});
-
 sendBtn.addEventListener('click', () => {
   unlockAudioPlayback();
   sendMessage(textInput.value);
@@ -615,6 +542,7 @@ function clearImageSelection() {
   imageInput.value = '';
   imagePreview.classList.add('hidden');
   imagePreviewImg.src = '';
+  syncComposerDock();
 }
 
 imageBtn.addEventListener('click', () => imageInput.click());
@@ -625,6 +553,7 @@ imageInput.addEventListener('change', () => {
   selectedImageFile = file;
   imagePreviewImg.src = URL.createObjectURL(file);
   imagePreview.classList.remove('hidden');
+  syncComposerDock();
 });
 
 imagePreviewRemove.addEventListener('click', clearImageSelection);
