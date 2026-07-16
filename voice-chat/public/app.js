@@ -124,6 +124,10 @@ function playQueuedAudio(urlPromise) {
         URL.revokeObjectURL(url);
         ttsPlayer.onended = null;
         ttsPlayer.onerror = null;
+        // Fully release the audio session (not just pause) so iOS frees
+        // the playback focus before we try to grab the mic again.
+        ttsPlayer.removeAttribute('src');
+        ttsPlayer.load();
         resolve();
       };
       ttsPlayer.onended = cleanup;
@@ -157,7 +161,12 @@ function stopAllAudio() {
 
 function maybeReturnToListening() {
   if (callActive && streamDone && pendingUtterances <= 0) {
-    startListening();
+    // Small buffer after audio playback fully releases before grabbing
+    // the mic again — helps iOS Safari switch the audio session category
+    // from playback back to recording cleanly.
+    setTimeout(() => {
+      if (callActive && streamDone && pendingUtterances <= 0) startListening();
+    }, 300);
   }
 }
 
