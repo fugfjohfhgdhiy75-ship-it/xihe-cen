@@ -39,6 +39,15 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const SUPABASE_READY = Boolean(SUPABASE_URL && SUPABASE_KEY);
 const supabase = SUPABASE_READY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
+const IMAGE_BUCKET = 'chat-images';
+if (SUPABASE_READY) {
+  supabase.storage.createBucket(IMAGE_BUCKET, { public: true }).catch((err) => {
+    if (!String(err && err.message).includes('already exists')) {
+      console.error('createBucket error:', err);
+    }
+  });
+}
+
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const COMPRESS_CHAR_THRESHOLD = Number(process.env.COMPRESS_CHAR_THRESHOLD || 6000);
 const COMPRESS_KEEP_MESSAGES = Number(process.env.COMPRESS_KEEP_MESSAGES || 10);
@@ -155,7 +164,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase
     .from('messages')
-    .select('id, role, content, created_at')
+    .select('id, role, content, image_url, created_at')
     .eq('session_id', req.params.id)
     .eq('visible', true)
     .order('created_at', { ascending: true });
@@ -182,11 +191,13 @@ app.put('/api/settings', async (req, res) => {
   res.json(data);
 });
 
-app.post('/api/chat', async (req, res) => {
-  const { sessionId, message, system: systemOverride } = req.body;
+app.post('/api/chat', upload.single('image'), async (req, res) => {
+  const sessionId = req.body.sessionId;
+  const message = req.body.message || '';
+  const systemOverride = req.body.system;
 
-  if (!sessionId || !message || !message.trim()) {
-    res.status(400).json({ error: 'sessionId and message are required' });
+  if (!sessionId || (!message.trim() && !req.file)) {
+    res.status(400).json({ error: 'sessionId and message (or an image) are required' });
     return;
   }
   if (!requireSupabase(res)) return;
@@ -208,7 +219,17 @@ app.post('/api/chat', async (req, res) => {
   };
 
   try {
-    await supabase.from('messages').insert({ session_id: sessionId, role: 'user', content: message });
+    let imageUrl = null;
+    if (req.file) {
+      const path = `${sessionId}/${Date.now()}-${req.file.originalname || 'image'}`;
+      const { error: uploadErr } = await supabase.storage
+        .from(IMAGE_BUCKET)
+        .upload(path, req.file.buffer, { contentType: req.file.mimetype });
+      if (uploadErr) throw new Error('图片上传失败: ' + uploadErr.message);
+      imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+    }
+
+    await supabase.from('messages').insert({ session_id: sessionId, role: 'user', content: message, image_url: imageUrl });
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
     const [{ data: history }, { data: memoryRows }, systemPrompt] = await Promise.all([
@@ -223,6 +244,19 @@ app.post('/api/chat', async (req, res) => {
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
     const messages = (history || []).map((m) => ({ role: m.role, content: m.content }));
+
+    // Only the message we just inserted (the last one) carries the actual
+    // image bytes to the model — history reloads don't re-send past images,
+    // keeping token/bandwidth cost bounded.
+    if (req.file) {
+      const last = messages[messages.length - 1];
+      if (last && last.role === 'user') {
+        last.content = [
+          { type: 'image', source: { type: 'base64', media_type: req.file.mimetype, data: req.file.buffer.toString('base64') } },
+          { type: 'text', text: message || '(图片)' },
+        ];
+      }
+    }
 
     const claudeMessage = await anthropic.messages.create({
       model: MODEL,

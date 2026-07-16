@@ -1,5 +1,7 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+.hidden { display: none !important; }
+
 :root {
   --bg-top: #1a1a2e;
   --bg-bot: #12182b;
@@ -247,10 +249,15 @@ h1 {
   line-height: 1.5;
   max-width: 82%;
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
   box-shadow: 0 2px 10px rgba(0,0,0,0.15);
   animation: rise 0.2s ease-out;
+}
+
+.bubble .bubble-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
 }
 
 @keyframes rise {
@@ -294,6 +301,27 @@ h1 {
 
 .bubble .play-btn.ready {
   display: flex;
+}
+
+.image-preview {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.image-preview img {
+  height: 56px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.bubble .bubble-img {
+  max-width: 100%;
+  border-radius: 12px;
+  display: block;
+  margin-bottom: 4px;
 }
 
 .composer {

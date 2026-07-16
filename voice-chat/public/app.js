@@ -21,6 +21,11 @@ const docUploadStatus = document.getElementById('docUploadStatus');
 const micBtn = document.getElementById('micBtn');
 const textInput = document.getElementById('textInput');
 const sendBtn = document.getElementById('sendBtn');
+const imageBtn = document.getElementById('imageBtn');
+const imageInput = document.getElementById('imageInput');
+const imagePreview = document.getElementById('imagePreview');
+const imagePreviewImg = document.getElementById('imagePreviewImg');
+const imagePreviewRemove = document.getElementById('imagePreviewRemove');
 
 const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -28,6 +33,7 @@ let selectedVoice = null;
 let ttsProvider = 'browser';
 let supabaseReady = false;
 let recognizing = false;
+let selectedImageFile = null;
 let activeRecognition = null;
 let sessions = [];
 let currentSessionId = null;
@@ -252,7 +258,7 @@ async function selectSession(id) {
     const res = await fetch(`/api/sessions/${id}/messages`);
     const msgs = await res.json();
     msgs.forEach((m) => {
-      const bubble = appendBubble(m.role, m.content);
+      const bubble = appendBubble(m.role, m.content, m.image_url);
       if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
     });
     statusText.textContent = '';
@@ -263,14 +269,26 @@ async function selectSession(id) {
 
 // ---- Chat bubbles ----
 
-function appendBubble(role, text) {
+function appendBubble(role, text, imageUrl) {
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
+
+  if (imageUrl) {
+    const img = document.createElement('img');
+    img.className = 'bubble-img';
+    img.src = imageUrl;
+    img.alt = '图片';
+    div.appendChild(img);
+  }
+
+  const row = document.createElement('div');
+  row.className = 'bubble-row';
+  div.appendChild(row);
 
   const textEl = document.createElement('span');
   textEl.className = 'bubble-text';
   textEl.textContent = text;
-  div.appendChild(textEl);
+  row.appendChild(textEl);
 
   let playBtn = null;
   if (role === 'assistant') {
@@ -278,7 +296,7 @@ function appendBubble(role, text) {
     playBtn.type = 'button';
     playBtn.className = 'play-btn';
     playBtn.textContent = '▶';
-    div.appendChild(playBtn);
+    row.appendChild(playBtn);
   }
 
   transcriptEl.appendChild(div);
@@ -344,10 +362,13 @@ function attachAudioLazy(bubble, text) {
 
 async function sendMessage(rawText) {
   const text = (rawText || '').trim();
-  if (!text || !currentSessionId) return;
+  const imageFile = selectedImageFile;
+  if ((!text && !imageFile) || !currentSessionId) return;
 
-  appendBubble('user', text);
+  const localImageUrl = imageFile ? URL.createObjectURL(imageFile) : undefined;
+  appendBubble('user', text, localImageUrl);
   textInput.value = '';
+  clearImageSelection();
   setBusy(true);
   statusText.textContent = '思考中...';
 
@@ -355,11 +376,12 @@ async function sendMessage(rawText) {
   let fullText = '';
 
   try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: currentSessionId, message: text }),
-    });
+    const form = new FormData();
+    form.append('sessionId', currentSessionId);
+    form.append('message', text);
+    if (imageFile) form.append('image', imageFile);
+
+    const res = await fetch('/api/chat', { method: 'POST', body: form });
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -479,3 +501,22 @@ textInput.addEventListener('keydown', (e) => {
     sendMessage(textInput.value);
   }
 });
+
+function clearImageSelection() {
+  selectedImageFile = null;
+  imageInput.value = '';
+  imagePreview.classList.add('hidden');
+  imagePreviewImg.src = '';
+}
+
+imageBtn.addEventListener('click', () => imageInput.click());
+
+imageInput.addEventListener('change', () => {
+  const file = imageInput.files && imageInput.files[0];
+  if (!file) return;
+  selectedImageFile = file;
+  imagePreviewImg.src = URL.createObjectURL(file);
+  imagePreview.classList.remove('hidden');
+});
+
+imagePreviewRemove.addEventListener('click', clearImageSelection);

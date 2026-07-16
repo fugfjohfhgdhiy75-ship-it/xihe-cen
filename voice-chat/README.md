@@ -24,6 +24,7 @@ npm start
 - 左上角 ☰ 是对话列表,可以新建/切换/改名/删除多个独立对话,每个对话的记录都存在 Supabase 里,换设备登录也能接着聊。
 - 右上角齿轮可以改 System Prompt(存在服务器,全设备共用)、识别语言、浏览器朗读音色(仅浏览器 TTS 模式下生效)。改完记得点"保存"。
 - 没配置 Supabase 时,顶部会有提示,输入框也会被禁用——聊天记录持久化是必须有数据库的,见下面"接入 Supabase"。
+- 输入框左边的 🖼️ 可以发图片,选好会先出个小预览,确认没问题再发送;模型要支持多模态(能看图)才认得,`MODEL` 换成不支持的会报错。图片存在 Supabase Storage 里,历史记录里也能看到;为了控制成本,只有"当下这一轮"会把图片真的发给模型,之后的对话不会每次重发。
 
 ## 接入 Supabase(聊天记录持久化 + 多会话 + 记忆压缩)
 
@@ -33,6 +34,11 @@ npm start
 4. 重启服务,顶部的"未配置 Supabase"提示应该消失,输入框可以用了。
 
 **记忆压缩**是怎么回事:每次对话后,后端会检查当前会话"可见消息"的总字数,超过 `COMPRESS_CHAR_THRESHOLD`(默认 6000 字)就会把最早的一批消息(保留最近 `COMPRESS_KEEP_MESSAGES` 条不动)丢给模型压缩成一段摘要存进 `memories` 表,原始消息标记为不可见(数据还在,只是不再拼进上下文)。这样对话越聊越长也不会无限增加 token 成本。默认用主模型自己做压缩;配置 `DEEPSEEK_API_KEY` 之后会改用更便宜的 DeepSeek 做这件事,不影响主对话质量。
+
+**发图片**需要额外建一个 Storage 桶:服务器启动时会自动尝试创建一个叫 `chat-images` 的公开桶,一般不用手动管;如果启动日志报 `createBucket error`,就去 Supabase 的 **Storage** 页面手动建一个名字为 `chat-images` 的 **Public** 桶。另外 `messages` 表需要多一个 `image_url` 字段,老项目在 SQL Editor 里跑一下这一行就行(新项目跑完整个 `supabase-schema.sql` 已经包含):
+```sql
+alter table messages add column if not exists image_url text;
+```
 
 ## 接入 MiniMax speech-02 克隆音色
 
