@@ -452,6 +452,7 @@ async function synthesizeElevenLabs(text) {
     console.error('ElevenLabs TTS suspiciously small response:', audioBuf.length, 'bytes:', audioBuf.toString('utf8').slice(0, 300));
     throw new Error('ElevenLabs 返回的音频内容异常(只有 ' + audioBuf.length + ' 字节),可能是账号没有 ' + ELEVENLABS_MODEL + ' 模型的使用权限');
   }
+  console.log('ElevenLabs TTS ok:', audioBuf.length, 'bytes');
   return audioBuf;
 }
 
@@ -487,7 +488,13 @@ async function synthesizeMiniMax(text) {
     console.error('MiniMax TTS error:', JSON.stringify(json.base_resp || json));
     throw new Error('MiniMax 返回异常: ' + JSON.stringify(json.base_resp || json));
   }
-  return Buffer.from(json.data.audio, 'hex');
+  const audioBuf = Buffer.from(json.data.audio, 'hex');
+  if (audioBuf.length < 500) {
+    console.error('MiniMax TTS suspiciously small response:', audioBuf.length, 'bytes. base_resp:', JSON.stringify(json.base_resp));
+    throw new Error('MiniMax 返回的音频内容异常(只有 ' + audioBuf.length + ' 字节)');
+  }
+  console.log('MiniMax TTS ok:', audioBuf.length, 'bytes');
+  return audioBuf;
 }
 
 app.post('/api/tts', async (req, res) => {

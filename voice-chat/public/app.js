@@ -530,8 +530,13 @@ ttsPlayer.addEventListener('ended', () => {
 // actually sounding) rather than rejecting the play() promise — without
 // this listener that fails completely silently: the icon just quietly
 // resets to ▶ with no indication anything went wrong.
+// MediaError.code: 1=ABORTED(载入被打断,通常无害) 2=NETWORK 3=DECODE(数据本身
+// 解不出来) 4=SRC_NOT_SUPPORTED(格式不对/根本不是音频)。把这个数字直接亮出来,
+// 不用再去翻服务器日志才能定位是哪一类问题。
 ttsPlayer.addEventListener('error', () => {
-  statusText.textContent = '播放失败(可能是返回的音频有问题,比如账号还没开通对应模型权限)';
+  const code = ttsPlayer.error ? ttsPlayer.error.code : '?';
+  if (code === 1) return; // aborted by us swapping .src on purpose, not a real failure
+  statusText.textContent = `播放失败(MediaError code ${code}),可能是返回的音频有问题`;
   if (currentPlayingBubble) currentPlayingBubble.playBtn.innerHTML = ICON_PLAY;
   currentPlayingBubble = null;
 });
