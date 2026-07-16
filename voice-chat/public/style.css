@@ -46,10 +46,16 @@ header {
 }
 
 h1 {
-  font-size: 19px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  margin: 0;
+  margin: 0 8px;
   background: linear-gradient(120deg, #fff, #b9c4ff);
   -webkit-background-clip: text;
   background-clip: text;
@@ -68,6 +74,94 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.setup-notice {
+  background: rgba(239,71,111,0.12);
+  border: 1px solid rgba(239,71,111,0.35);
+  color: #ffb8c6;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin-top: 10px;
+}
+
+.setup-notice.hidden { display: none; }
+
+.side-panel {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  margin: 12px 0;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(10px);
+}
+
+.side-panel.hidden { display: none; }
+
+.side-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 2px 4px 10px;
+}
+
+.sessions-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.session-row.active {
+  background: rgba(91,124,250,0.18);
+}
+
+.session-row .session-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.mini-icon-btn {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.mini-btn {
+  flex: none;
+  align-self: flex-start;
+  background: var(--accent);
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
 }
 
 .settings-panel {

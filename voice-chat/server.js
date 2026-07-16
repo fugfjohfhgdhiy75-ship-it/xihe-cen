@@ -3,6 +3,7 @@ const express = require('express');
 const multer = require('multer');
 const { PDFParse } = require('pdf-parse');
 const Anthropic = require('@anthropic-ai/sdk');
+const { createClient } = require('@supabase/supabase-js');
 
 process.on('unhandledRejection', (reason) => {
   console.error('unhandledRejection (kept process alive):', reason);
@@ -33,13 +34,162 @@ const MINIMAX_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID && MINIMAX_VOI
 const MINIMAX_CLONE_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID);
 const CLONE_PASSCODE = process.env.CLONE_PASSCODE;
 
-app.post('/api/chat', async (req, res) => {
-  const { messages, system } = req.body;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const SUPABASE_READY = Boolean(SUPABASE_URL && SUPABASE_KEY);
+const supabase = SUPABASE_READY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
-  if (!Array.isArray(messages) || messages.length === 0) {
-    res.status(400).json({ error: 'messages array is required' });
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const COMPRESS_CHAR_THRESHOLD = Number(process.env.COMPRESS_CHAR_THRESHOLD || 6000);
+const COMPRESS_KEEP_MESSAGES = Number(process.env.COMPRESS_KEEP_MESSAGES || 10);
+
+function requireSupabase(res) {
+  if (!SUPABASE_READY) {
+    res.status(501).json({ error: 'Supabase 未配置(缺 SUPABASE_URL / SUPABASE_KEY),聊天记录不会持久化' });
+    return false;
+  }
+  return true;
+}
+
+async function getSystemPrompt() {
+  if (!SUPABASE_READY) return '';
+  const { data } = await supabase.from('settings').select('system_prompt').eq('id', 1).maybeSingle();
+  return (data && data.system_prompt) || '';
+}
+
+// Summarize the oldest messages of a session into `memories` once the
+// visible history grows past COMPRESS_CHAR_THRESHOLD, then hide the
+// originals (visible=false) so future context stays bounded.
+async function compressIfNeeded(sessionId) {
+  const { data: rows } = await supabase
+    .from('messages')
+    .select('id, role, content, created_at')
+    .eq('session_id', sessionId)
+    .eq('visible', true)
+    .order('created_at', { ascending: true });
+
+  if (!rows || rows.length <= COMPRESS_KEEP_MESSAGES) return;
+
+  const totalChars = rows.reduce((sum, m) => sum + m.content.length, 0);
+  if (totalChars < COMPRESS_CHAR_THRESHOLD) return;
+
+  const toCompress = rows.slice(0, rows.length - COMPRESS_KEEP_MESSAGES);
+  const transcript = toCompress.map((m) => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`).join('\n');
+
+  try {
+    const summary = await summarizeText(transcript);
+    if (!summary) return;
+
+    await supabase.from('memories').insert({ session_id: sessionId, summary });
+    await supabase.from('messages').update({ visible: false }).in('id', toCompress.map((m) => m.id));
+  } catch (err) {
+    console.error('compressIfNeeded error:', err);
+  }
+}
+
+async function summarizeText(transcript) {
+  const prompt = `把下面这段对话压缩成一段简短的中文摘要,保留关键事实、情绪和上下文,不超过 200 字,不要加任何前缀说明:\n\n${transcript}`;
+
+  if (DEEPSEEK_API_KEY) {
+    const res = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 400,
+      }),
+    });
+    const json = await res.json();
+    return json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+  }
+
+  const message = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: 400,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+}
+
+app.get('/api/sessions', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase.from('sessions').select('*').order('updated_at', { ascending: false });
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.post('/api/sessions', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const name = (req.body.name || '新对话').trim() || '新对话';
+  const { data, error } = await supabase.from('sessions').insert({ name }).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.patch('/api/sessions/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const name = (req.body.name || '').trim();
+  if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+  const { data, error } = await supabase
+    .from('sessions')
+    .update({ name, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .select()
+    .single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.delete('/api/sessions/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { error } = await supabase.from('sessions').delete().eq('id', req.params.id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
+});
+
+app.get('/api/sessions/:id/messages', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id, role, content, created_at')
+    .eq('session_id', req.params.id)
+    .eq('visible', true)
+    .order('created_at', { ascending: true });
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.get('/api/settings', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase.from('settings').select('*').eq('id', 1).maybeSingle();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data || { system_prompt: '' });
+});
+
+app.put('/api/settings', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const systemPrompt = req.body.system_prompt || '';
+  const { data, error } = await supabase
+    .from('settings')
+    .upsert({ id: 1, system_prompt: systemPrompt, updated_at: new Date().toISOString() })
+    .select()
+    .single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.post('/api/chat', async (req, res) => {
+  const { sessionId, message, system: systemOverride } = req.body;
+
+  if (!sessionId || !message || !message.trim()) {
+    res.status(400).json({ error: 'sessionId and message are required' });
     return;
   }
+  if (!requireSupabase(res)) return;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -58,24 +208,42 @@ app.post('/api/chat', async (req, res) => {
   };
 
   try {
-    const message = await anthropic.messages.create({
+    await supabase.from('messages').insert({ session_id: sessionId, role: 'user', content: message });
+    await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
+
+    const [{ data: history }, { data: memoryRows }, systemPrompt] = await Promise.all([
+      supabase.from('messages').select('role, content').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
+      supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
+      getSystemPrompt(),
+    ]);
+
+    const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
+    const systemParts = [systemOverride || systemPrompt];
+    if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
+    const system = systemParts.filter(Boolean).join('\n\n') || undefined;
+
+    const messages = (history || []).map((m) => ({ role: m.role, content: m.content }));
+
+    const claudeMessage = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1024,
-      system: system || undefined,
+      system,
       messages,
     });
 
-    const text = (message.content || [])
+    const text = (claudeMessage.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('');
 
     if (!text) {
-      console.error('/api/chat: empty completion, message =', JSON.stringify(message));
-      send({ error: `模型没返回任何文字(stop_reason=${message.stop_reason}),把这条截图发给开发者` });
+      console.error('/api/chat: empty completion, message =', JSON.stringify(claudeMessage));
+      send({ error: `模型没返回任何文字(stop_reason=${claudeMessage.stop_reason}),把这条截图发给开发者` });
     } else {
+      await supabase.from('messages').insert({ session_id: sessionId, role: 'assistant', content: text });
       send({ text });
       send({ done: true });
+      compressIfNeeded(sessionId).catch((err) => console.error('compressIfNeeded background error:', err));
     }
     finish();
   } catch (err) {
@@ -117,7 +285,7 @@ app.get('/api/debug-chat', async (req, res) => {
 });
 
 app.get('/api/config', (req, res) => {
-  res.json({ ttsProvider: MINIMAX_READY ? 'minimax' : 'browser' });
+  res.json({ ttsProvider: MINIMAX_READY ? 'minimax' : 'browser', supabaseReady: SUPABASE_READY });
 });
 
 app.post('/api/extract-text', upload.single('file'), async (req, res) => {

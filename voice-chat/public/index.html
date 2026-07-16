@@ -18,13 +18,27 @@
 <body>
   <div class="app">
     <header>
-      <h1>苏晏</h1>
+      <button id="sessionsBtn" class="icon-btn" title="对话列表">☰</button>
+      <h1 id="sessionTitle">苏晏</h1>
       <button id="settingsBtn" class="icon-btn" title="设置">⚙</button>
     </header>
 
+    <div id="setupNotice" class="setup-notice hidden">
+      还没配置 Supabase,聊天记录暂时不会保存。看设置里的说明,或者先联系开发者配置好。
+    </div>
+
+    <div id="sessionsPanel" class="side-panel hidden">
+      <div class="side-panel-header">
+        <span>对话列表</span>
+        <button id="newSessionBtn" class="mini-btn">+ 新对话</button>
+      </div>
+      <div id="sessionsList" class="sessions-list"></div>
+    </div>
+
     <div id="settingsPanel" class="settings-panel hidden">
-      <label>System Prompt / 身份设定(会自动保存在本机)</label>
+      <label>System Prompt / 身份设定(保存在服务器,所有设备共用)</label>
       <textarea id="systemPrompt" rows="6" placeholder="给 TA 的角色设定,可留空;也可以用下面的导入按钮从文件里拼进来"></textarea>
+      <button id="saveSettings" class="mini-btn">保存</button>
 
       <label>导入背景资料(md / txt / pdf,会追加到上面)</label>
       <input type="file" id="docUpload" accept=".md,.txt,.pdf" multiple>

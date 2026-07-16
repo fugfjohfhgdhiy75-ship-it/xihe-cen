@@ -1,24 +1,36 @@
 const statusText = document.getElementById('statusText');
 const transcriptEl = document.getElementById('transcript');
+const setupNotice = document.getElementById('setupNotice');
+const sessionTitle = document.getElementById('sessionTitle');
+
+const sessionsBtn = document.getElementById('sessionsBtn');
+const sessionsPanel = document.getElementById('sessionsPanel');
+const sessionsList = document.getElementById('sessionsList');
+const newSessionBtn = document.getElementById('newSessionBtn');
+
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 const closeSettings = document.getElementById('closeSettings');
+const saveSettingsBtn = document.getElementById('saveSettings');
 const systemPromptEl = document.getElementById('systemPrompt');
 const sttLangEl = document.getElementById('sttLang');
 const voiceSelectEl = document.getElementById('voiceSelect');
-const micBtn = document.getElementById('micBtn');
-const textInput = document.getElementById('textInput');
-const sendBtn = document.getElementById('sendBtn');
 const docUpload = document.getElementById('docUpload');
 const docUploadStatus = document.getElementById('docUploadStatus');
 
+const micBtn = document.getElementById('micBtn');
+const textInput = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
+
 const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-let messages = [];
 let selectedVoice = null;
 let ttsProvider = 'browser';
+let supabaseReady = false;
 let recognizing = false;
 let activeRecognition = null;
+let sessions = [];
+let currentSessionId = null;
 
 const ttsPlayer = document.getElementById('ttsPlayer');
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -28,10 +40,32 @@ function unlockAudioPlayback() {
   ttsPlayer.play().catch(() => {});
 }
 
-const configPromise = fetch('/api/config')
-  .then((r) => r.json())
-  .then((cfg) => { ttsProvider = cfg.ttsProvider || 'browser'; })
-  .catch(() => { ttsProvider = 'browser'; });
+function setBusy(busy) {
+  sendBtn.disabled = busy;
+  micBtn.disabled = busy;
+}
+
+function disableComposer() {
+  sendBtn.disabled = true;
+  micBtn.disabled = true;
+  textInput.disabled = true;
+}
+
+async function init() {
+  const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({}));
+  ttsProvider = cfg.ttsProvider || 'browser';
+  supabaseReady = Boolean(cfg.supabaseReady);
+
+  if (!supabaseReady) {
+    setupNotice.classList.remove('hidden');
+    disableComposer();
+    return;
+  }
+
+  await loadSettings();
+  await loadSessions();
+}
+init();
 
 function loadVoices() {
   const voices = speechSynthesis.getVoices();
@@ -54,15 +88,42 @@ voiceSelectEl.addEventListener('change', () => {
   selectedVoice = voices[voiceSelectEl.value] || null;
 });
 
-settingsBtn.addEventListener('click', () => settingsPanel.classList.toggle('hidden'));
+settingsBtn.addEventListener('click', () => {
+  sessionsPanel.classList.add('hidden');
+  settingsPanel.classList.toggle('hidden');
+});
 closeSettings.addEventListener('click', () => settingsPanel.classList.add('hidden'));
 
-const SYSTEM_PROMPT_KEY = 'suyan_system_prompt';
-const savedPrompt = localStorage.getItem(SYSTEM_PROMPT_KEY);
-if (savedPrompt) systemPromptEl.value = savedPrompt;
-systemPromptEl.addEventListener('input', () => {
-  localStorage.setItem(SYSTEM_PROMPT_KEY, systemPromptEl.value);
+sessionsBtn.addEventListener('click', () => {
+  settingsPanel.classList.add('hidden');
+  sessionsPanel.classList.toggle('hidden');
 });
+
+// ---- Settings (server-persisted) ----
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    const data = await res.json();
+    systemPromptEl.value = data.system_prompt || '';
+  } catch (err) {
+    statusText.textContent = '加载设置失败: ' + err.message;
+  }
+}
+
+async function saveSettings() {
+  try {
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system_prompt: systemPromptEl.value }),
+    });
+    docUploadStatus.textContent = '已保存';
+  } catch (err) {
+    docUploadStatus.textContent = '保存失败: ' + err.message;
+  }
+}
+saveSettingsBtn.addEventListener('click', saveSettings);
 
 docUpload.addEventListener('change', async () => {
   const files = Array.from(docUpload.files || []);
@@ -79,7 +140,7 @@ docUpload.addEventListener('change', async () => {
 
       const sep = systemPromptEl.value.trim() ? '\n\n' : '';
       systemPromptEl.value += `${sep}--- ${body.filename} ---\n${body.text}`;
-      localStorage.setItem(SYSTEM_PROMPT_KEY, systemPromptEl.value);
+      await saveSettings();
       docUploadStatus.textContent = `已导入 ${file.name}(${body.text.length} 字)`;
     } catch (err) {
       docUploadStatus.textContent = `${file.name} 导入失败: ${err.message}`;
@@ -87,6 +148,120 @@ docUpload.addEventListener('change', async () => {
   }
   docUpload.value = '';
 });
+
+// ---- Sessions ----
+
+async function loadSessions() {
+  const res = await fetch('/api/sessions');
+  sessions = await res.json();
+
+  if (!sessions.length) {
+    const created = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '新对话' }),
+    }).then((r) => r.json());
+    sessions = [created];
+  }
+
+  renderSessionsList();
+
+  if (!currentSessionId || !sessions.find((s) => s.id === currentSessionId)) {
+    await selectSession(sessions[0].id);
+  }
+}
+
+function renderSessionsList() {
+  sessionsList.innerHTML = '';
+  sessions.forEach((s) => {
+    const row = document.createElement('div');
+    row.className = 'session-row' + (s.id === currentSessionId ? ' active' : '');
+
+    const name = document.createElement('span');
+    name.className = 'session-name';
+    name.textContent = s.name;
+    name.addEventListener('click', () => selectSession(s.id));
+    row.appendChild(name);
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'mini-icon-btn';
+    renameBtn.textContent = '✎';
+    renameBtn.addEventListener('click', (e) => { e.stopPropagation(); renameSession(s.id, s.name); });
+    row.appendChild(renameBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mini-icon-btn';
+    delBtn.textContent = '🗑';
+    delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteSession(s.id); });
+    row.appendChild(delBtn);
+
+    sessionsList.appendChild(row);
+  });
+}
+
+newSessionBtn.addEventListener('click', async () => {
+  const created = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '新对话' }),
+  }).then((r) => r.json());
+  sessions.unshift(created);
+  await selectSession(created.id);
+  renderSessionsList();
+});
+
+async function renameSession(id, currentName) {
+  const name = prompt('改个名字', currentName);
+  if (!name || !name.trim()) return;
+  await fetch(`/api/sessions/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  const s = sessions.find((x) => x.id === id);
+  if (s) s.name = name.trim();
+  renderSessionsList();
+  if (id === currentSessionId) sessionTitle.textContent = name.trim();
+}
+
+async function deleteSession(id) {
+  if (!confirm('删掉这个对话?聊天记录会一起没了。')) return;
+  await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+  sessions = sessions.filter((s) => s.id !== id);
+  if (id === currentSessionId) {
+    currentSessionId = null;
+    if (sessions.length) {
+      await selectSession(sessions[0].id);
+    } else {
+      await loadSessions();
+    }
+  }
+  renderSessionsList();
+}
+
+async function selectSession(id) {
+  currentSessionId = id;
+  const s = sessions.find((x) => x.id === id);
+  sessionTitle.textContent = (s && s.name) || '苏晏';
+  sessionsPanel.classList.add('hidden');
+  renderSessionsList();
+
+  transcriptEl.innerHTML = '';
+  statusText.textContent = '加载记录中...';
+  try {
+    const res = await fetch(`/api/sessions/${id}/messages`);
+    const msgs = await res.json();
+    msgs.forEach((m) => {
+      const bubble = appendBubble(m.role, m.content);
+      if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
+    });
+    statusText.textContent = '';
+  } catch (err) {
+    statusText.textContent = '加载记录失败: ' + err.message;
+  }
+}
+
+// ---- Chat bubbles ----
 
 function appendBubble(role, text) {
   const div = document.createElement('div');
@@ -140,7 +315,8 @@ async function fetchMinimaxAudioUrl(text) {
   return URL.createObjectURL(blob);
 }
 
-function attachAudio(bubble, text) {
+// Eager: used right after a fresh reply arrives — fetch + auto-play immediately.
+function attachAudioEager(bubble, text) {
   if (ttsProvider === 'minimax') {
     fetchMinimaxAudioUrl(text)
       .then((url) => {
@@ -158,18 +334,29 @@ function attachAudio(bubble, text) {
   }
 }
 
-function setBusy(busy) {
-  sendBtn.disabled = busy;
-  micBtn.disabled = busy;
+// Lazy: used for history — only fetch/synthesize when the user taps play.
+function attachAudioLazy(bubble, text) {
+  bubble.playBtn.classList.add('ready');
+  bubble.playBtn.onclick = async () => {
+    if (ttsProvider !== 'minimax') { speakBrowser(text); return; }
+    bubble.playBtn.disabled = true;
+    try {
+      const url = await fetchMinimaxAudioUrl(text);
+      bubble.playBtn.onclick = () => playUrl(url);
+      playUrl(url);
+    } catch (err) {
+      statusText.textContent = 'TTS 出错: ' + err.message;
+    } finally {
+      bubble.playBtn.disabled = false;
+    }
+  };
 }
 
 async function sendMessage(rawText) {
   const text = (rawText || '').trim();
-  if (!text) return;
+  if (!text || !currentSessionId) return;
 
-  await configPromise;
   appendBubble('user', text);
-  messages.push({ role: 'user', content: text });
   textInput.value = '';
   setBusy(true);
   statusText.textContent = '思考中...';
@@ -181,7 +368,7 @@ async function sendMessage(rawText) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, system: systemPromptEl.value || undefined }),
+      body: JSON.stringify({ sessionId: currentSessionId, message: text }),
     });
 
     const reader = res.body.getReader();
@@ -207,9 +394,14 @@ async function sendMessage(rawText) {
     }
 
     if (fullText) {
-      messages.push({ role: 'assistant', content: fullText });
-      attachAudio(assistantBubble, fullText);
+      attachAudioEager(assistantBubble, fullText);
       statusText.textContent = '';
+      const s = sessions.find((x) => x.id === currentSessionId);
+      if (s) {
+        s.updated_at = new Date().toISOString();
+        sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+        renderSessionsList();
+      }
     } else {
       assistantBubble.textEl.textContent = '(没有收到回复)';
       statusText.textContent = '';
