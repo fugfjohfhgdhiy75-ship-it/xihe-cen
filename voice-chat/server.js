@@ -307,6 +307,11 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // what reads as "getting duller/more mechanical the longer we talk."
     // Counter that explicitly rather than just relying on prompt tone.
     systemParts.push('不管这段对话已经聊了多久、之前说过多少次类似的话,每次都要重新读一遍用户刚才说的话,给出真正对应这句话的反应——不要因为之前用过某个说法、某个反应,这次就照搬重复。保持第一次开口时那种专注和灵敏,不要变得公式化或者敷衍。');
+    // Beyond repeating phrases, the reply *shape* itself can get stuck in a
+    // rut — always the same "structured essay with **bold** emphasis and
+    // 破折号" rhetorical pattern regardless of what's actually being said.
+    // Real conversation varies in length and register with the moment.
+    systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、破折号排比、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
     const messages = (history || []).map((m) => ({ role: m.role, content: m.content }));

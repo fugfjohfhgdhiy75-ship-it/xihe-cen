@@ -325,6 +325,10 @@ h1 {
   word-break: break-word;
 }
 
+.bubble .bubble-text strong {
+  font-weight: 700;
+}
+
 .audio-controls {
   flex: none;
   display: flex;

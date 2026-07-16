@@ -331,6 +331,23 @@ function formatForDisplay(text) {
   return text.replace(/\s*\n+\s*/g, ' ').trim();
 }
 
+// The model sometimes writes markdown-style **bold** for emphasis, but the
+// bubble just shows raw text — so it was literally showing the asterisks
+// instead of emphasis. Parse that into a real <strong> instead.
+function renderBubbleText(el, text) {
+  el.innerHTML = '';
+  text.split(/(\*\*[^*]+\*\*)/g).forEach((part) => {
+    if (!part) return;
+    if (part.startsWith('**') && part.endsWith('**')) {
+      const strong = document.createElement('strong');
+      strong.textContent = part.slice(2, -2);
+      el.appendChild(strong);
+    } else {
+      el.appendChild(document.createTextNode(part));
+    }
+  });
+}
+
 function appendBubble(role, text, imageUrls, id) {
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
@@ -355,7 +372,7 @@ function appendBubble(role, text, imageUrls, id) {
 
   const textEl = document.createElement('span');
   textEl.className = 'bubble-text';
-  textEl.textContent = formatForDisplay(text);
+  renderBubbleText(textEl, formatForDisplay(text));
   row.appendChild(textEl);
 
   let playBtn = null;
@@ -643,7 +660,7 @@ async function sendMessage(rawText) {
         }
         if (payload.text) {
           fullText += payload.text;
-          assistantBubble.textEl.textContent = formatForDisplay(fullText);
+          renderBubbleText(assistantBubble.textEl, formatForDisplay(fullText));
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
       }
