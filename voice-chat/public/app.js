@@ -1448,13 +1448,17 @@ async function loadDiary() {
   }
 }
 
-// ---- Voice call (push-to-talk) ----
-// Not a realtime stream: tap to record, tap again to send — the clip goes
-// to /api/call-turn (STT → Claude → TTS) and his reply plays back. Uses
-// our own MediaRecorder + getUserMedia, no IME involved, so third-party
-// keyboard voice panels (and their black-screen crashes) never enter the
-// picture. Turns are saved as normal messages, so hanging up drops the
-// whole call transcript into the chat.
+// ---- Voice call (hands-free) ----
+// A conversation loop, not push-to-talk: the mic level is monitored
+// continuously (WebAudio analyser), a turn starts when speech is heard
+// and auto-sends after ~1.3s of silence, the reply plays, then listening
+// resumes — no button presses between turns. The mic button is a mute
+// toggle for noisy surroundings. Listening pauses while he speaks so his
+// voice from the speaker can't trigger the detector. Recording uses our
+// own MediaRecorder, no IME involved, so third-party keyboard voice
+// panels (and their black-screen crashes) never enter the picture.
+// Turns are saved as normal messages, so hanging up drops the whole
+// call transcript into the chat.
 const callBtn = document.getElementById('callBtn');
 const callScreen = document.getElementById('callScreen');
 const callStatusEl = document.getElementById('callStatus');
@@ -1465,9 +1469,21 @@ const callEndBtn = document.getElementById('callEndBtn');
 let callStream = null;
 let callRecorder = null;
 let callChunks = [];
-let callBusy = false;
-let callDiscard = false;
 let callHadTurns = false;
+let callAudioCtx = null;
+let callAnalyser = null;
+let callMonitorTimer = null;
+// 'idle' | 'listening' | 'processing' | 'speaking' | 'muted'
+let callState = 'idle';
+let speechSeen = false;
+let lastVoiceAt = 0;
+let listenStartedAt = 0;
+let noiseSamples = [];
+let voiceThreshold = 0.025;
+
+const SILENCE_MS = 1300;       // pause this long after speaking = turn over
+const MIN_SPEECH_MS = 250;     // shorter blips than this don't count as speech
+const IDLE_RECYCLE_MS = 25000; // restart recorder if nothing said for this long
 
 function callMimeType() {
   if (!window.MediaRecorder) return '';
@@ -1482,37 +1498,21 @@ function addCallLine(who, text) {
   callTranscriptEl.scrollTop = callTranscriptEl.scrollHeight;
 }
 
-callBtn.addEventListener('click', async () => {
-  if (!currentSessionId) return;
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
-    statusText.textContent = '这个浏览器不支持录音,没法通话';
-    return;
-  }
-  try {
-    callStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch {
-    statusText.textContent = '需要麦克风权限才能通话(去系统设置里允许一下)';
-    return;
-  }
-  callHadTurns = false;
-  callTranscriptEl.innerHTML = '';
-  callStatusEl.textContent = '按下面的按钮说话';
-  callScreen.classList.remove('hidden');
-});
+function micLevel() {
+  if (!callAnalyser) return 0;
+  const buf = new Float32Array(callAnalyser.fftSize);
+  callAnalyser.getFloatTimeDomainData(buf);
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+  return Math.sqrt(sum / buf.length);
+}
 
-callTalkBtn.addEventListener('click', () => {
-  if (callBusy || !callStream) return;
-
-  if (callRecorder && callRecorder.state === 'recording') {
-    // Must run synchronously inside this tap — the reply audio plays after
-    // an await chain, outside the gesture window, unless unlocked now.
-    unlockAudioPlayback();
-    callRecorder.stop();
-    return;
-  }
-
+function startListening() {
+  if (!callStream || callState === 'muted') return;
   callChunks = [];
-  callDiscard = false;
+  speechSeen = false;
+  noiseSamples = [];
+  listenStartedAt = Date.now();
   const mime = callMimeType();
   try {
     callRecorder = mime ? new MediaRecorder(callStream, { mimeType: mime }) : new MediaRecorder(callStream);
@@ -1522,20 +1522,75 @@ callTalkBtn.addEventListener('click', () => {
   }
   callRecorder.ondataavailable = (e) => { if (e.data && e.data.size) callChunks.push(e.data); };
   callRecorder.onstop = () => {
-    callTalkBtn.classList.remove('recording');
-    if (callDiscard) return;
+    if (callState !== 'processing') return; // hung up / muted / recycled — discard
     const blob = new Blob(callChunks, { type: callRecorder.mimeType || 'audio/mp4' });
-    if (blob.size < 1000) { callStatusEl.textContent = '太短了,没录到什么,再说一次'; return; }
+    if (blob.size < 1000) { setCallState('listening'); return; }
     sendCallTurn(blob);
   };
   callRecorder.start();
+  callState = 'listening';
   callTalkBtn.classList.add('recording');
-  callStatusEl.textContent = '在听你说...说完再按一下发出去';
-});
+  callStatusEl.textContent = '在听,直接说就行';
+
+  clearInterval(callMonitorTimer);
+  let speechStartAt = 0;
+  callMonitorTimer = setInterval(() => {
+    if (callState !== 'listening') return;
+    const level = micLevel();
+    const now = Date.now();
+
+    // First ~600ms: sample ambient noise and set the speech threshold a
+    // safe margin above it, so a noisy room doesn't self-trigger.
+    if (now - listenStartedAt < 600) {
+      noiseSamples.push(level);
+      return;
+    }
+    if (noiseSamples.length) {
+      const avg = noiseSamples.reduce((a, b) => a + b, 0) / noiseSamples.length;
+      voiceThreshold = Math.max(0.02, avg * 3);
+      noiseSamples = [];
+    }
+
+    if (level > voiceThreshold) {
+      if (!speechStartAt) speechStartAt = now;
+      if (!speechSeen && now - speechStartAt >= MIN_SPEECH_MS) {
+        speechSeen = true;
+        callStatusEl.textContent = '嗯,在听...说完停一下就发出去';
+      }
+      lastVoiceAt = now;
+    } else if (!speechSeen) {
+      speechStartAt = 0;
+    }
+
+    if (speechSeen && now - lastVoiceAt > SILENCE_MS) {
+      finishTurn();
+      return;
+    }
+    if (!speechSeen && now - listenStartedAt > IDLE_RECYCLE_MS) {
+      // Nothing said for a while — restart the recorder so the buffered
+      // clip doesn't grow forever while idle.
+      const rec = callRecorder;
+      callState = 'idle';
+      rec.stop();
+      startListening();
+    }
+  }, 90);
+}
+
+function finishTurn() {
+  if (callState !== 'listening' || !callRecorder || callRecorder.state !== 'recording') return;
+  callState = 'processing';
+  clearInterval(callMonitorTimer);
+  callTalkBtn.classList.remove('recording');
+  callRecorder.stop();
+}
+
+function setCallState(next) {
+  callState = next;
+  if (next === 'listening') startListening();
+}
 
 async function sendCallTurn(blob) {
-  callBusy = true;
-  callTalkBtn.disabled = true;
   callStatusEl.textContent = '他在听...';
   try {
     const form = new FormData();
@@ -1550,32 +1605,93 @@ async function sendCallTurn(blob) {
     addCallLine('him', data.replyText);
 
     if (data.audioBase64) {
+      callState = 'speaking';
       ttsPlayer.src = 'data:audio/mpeg;base64,' + data.audioBase64;
       ttsPlayer.playbackRate = 1;
       ttsPlayer.currentTime = 0;
       callStatusEl.textContent = '他在说...';
       ttsPlayer.addEventListener('ended', () => {
-        callStatusEl.textContent = '按下面的按钮说话';
+        if (callState !== 'speaking') return;
+        // Small pause before re-arming the mic so the speaker's tail end
+        // doesn't get picked up as her talking.
+        setTimeout(() => { if (callState === 'speaking') setCallState('listening'); }, 350);
       }, { once: true });
       await ttsPlayer.play().catch(() => {
         callStatusEl.textContent = '语音放不出来,他说的在上面';
+        if (callState === 'speaking') setCallState('listening');
       });
     } else {
       callStatusEl.textContent = '语音合成没成功,他说的在上面';
+      setCallState('listening');
     }
   } catch (err) {
     callStatusEl.textContent = err.message;
-  } finally {
-    callBusy = false;
-    callTalkBtn.disabled = false;
+    setCallState('listening');
   }
 }
 
+callBtn.addEventListener('click', async () => {
+  if (!currentSessionId) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    statusText.textContent = '这个浏览器不支持录音,没法通话';
+    return;
+  }
+  // Both of these need to happen inside this tap's gesture window on iOS:
+  // unlocking the shared audio element (replies play long after the tap)
+  // and creating/resuming the AudioContext the level meter runs on.
+  unlockAudioPlayback();
+  try {
+    callAudioCtx = callAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (callAudioCtx.state === 'suspended') callAudioCtx.resume();
+  } catch {}
+  try {
+    callStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    statusText.textContent = '需要麦克风权限才能通话(去系统设置里允许一下)';
+    return;
+  }
+  try {
+    const source = callAudioCtx.createMediaStreamSource(callStream);
+    callAnalyser = callAudioCtx.createAnalyser();
+    callAnalyser.fftSize = 1024;
+    source.connect(callAnalyser);
+  } catch {}
+  callHadTurns = false;
+  callTranscriptEl.innerHTML = '';
+  callScreen.classList.remove('hidden');
+  startListening();
+});
+
+// The mic button is now a mute toggle — the loop runs hands-free, this is
+// the escape hatch for noisy surroundings (or thinking out loud).
+callTalkBtn.addEventListener('click', () => {
+  if (!callStream) return;
+  unlockAudioPlayback();
+  if (callState === 'muted') {
+    callTalkBtn.classList.remove('muted');
+    setCallState('listening');
+    return;
+  }
+  if (callState === 'listening') {
+    const rec = callRecorder;
+    callState = 'muted';
+    clearInterval(callMonitorTimer);
+    if (rec && rec.state === 'recording') rec.stop();
+    callTalkBtn.classList.remove('recording');
+    callTalkBtn.classList.add('muted');
+    callStatusEl.textContent = '已静音,再按一下继续';
+  }
+});
+
 callEndBtn.addEventListener('click', () => {
-  callDiscard = true;
-  if (callRecorder && callRecorder.state === 'recording') callRecorder.stop();
+  const rec = callRecorder;
+  callState = 'idle';
+  clearInterval(callMonitorTimer);
+  if (rec && rec.state === 'recording') rec.stop();
   if (callStream) { callStream.getTracks().forEach((t) => t.stop()); callStream = null; }
+  callAnalyser = null;
   ttsPlayer.pause();
+  callTalkBtn.classList.remove('recording', 'muted');
   callScreen.classList.add('hidden');
   // The call's turns were saved server-side as normal messages — reload so
   // they show up in the chat transcript right away.
