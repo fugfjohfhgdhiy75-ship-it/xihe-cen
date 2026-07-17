@@ -514,11 +514,79 @@ function startEditBubble(bubble) {
         throw new Error(body.error || '保存失败');
       }
       exitEdit(next);
+      // Everything after this message was just deleted server-side (see
+      // PATCH /api/messages/:id) — drop the matching bubbles from the UI
+      // too and get a fresh reply for the edited message.
+      removeBubblesAfter(bubble.el);
+      regenerateReplyAfterEdit(bubble.id);
     } catch (err) {
       statusText.textContent = '编辑失败: ' + err.message;
       saveBtn.disabled = false;
     }
   });
+}
+
+function removeBubblesAfter(afterEl) {
+  let node = afterEl.nextElementSibling;
+  while (node) {
+    const next = node.nextElementSibling;
+    node.remove();
+    node = next;
+  }
+}
+
+async function regenerateReplyAfterEdit(messageId) {
+  setBusy(true);
+  statusText.textContent = '思考中...';
+  const assistantBubble = appendBubble('assistant', '');
+  let fullText = '';
+  try {
+    const form = new FormData();
+    form.append('sessionId', currentSessionId);
+    form.append('regenerateMessageId', messageId);
+
+    const res = await fetch('/api/chat', { method: 'POST', body: form });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.error) throw new Error(payload.error);
+        if (payload.text) {
+          fullText += payload.text;
+          renderBubbleText(assistantBubble.textEl, formatForDisplay(fullText));
+          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        }
+      }
+    }
+
+    if (fullText) {
+      attachAudioLazy(assistantBubble, fullText);
+      statusText.textContent = '';
+      const s = sessions.find((x) => x.id === currentSessionId);
+      if (s) {
+        s.updated_at = new Date().toISOString();
+        sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+        renderSessionsList();
+      }
+    } else {
+      assistantBubble.textEl.textContent = '(没有收到回复)';
+      statusText.textContent = '';
+    }
+  } catch (err) {
+    assistantBubble.el.remove();
+    statusText.textContent = '重新生成回复失败: ' + err.message;
+  } finally {
+    setBusy(false);
+  }
 }
 
 function speakBrowser(text) {

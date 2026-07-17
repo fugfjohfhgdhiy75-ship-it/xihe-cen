@@ -498,7 +498,7 @@ app.patch('/api/messages/:id', async (req, res) => {
   if (!requireSupabase(res)) return;
   const content = (req.body.content || '').trim();
   if (!content) { res.status(400).json({ error: 'content is required' }); return; }
-  const { data, error } = await supabase
+  const { data: updated, error } = await supabase
     .from('messages')
     .update({ content })
     .eq('id', req.params.id)
@@ -506,7 +506,21 @@ app.patch('/api/messages/:id', async (req, res) => {
     .select()
     .single();
   if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json(data);
+  if (!updated) { res.status(404).json({ error: '消息不存在' }); return; }
+
+  // Editing a sent message rewrites history from that point forward —
+  // everything that came after it (her later messages, its replies) was a
+  // reaction to the *old* wording, so it no longer makes sense once the
+  // wording changed. Drop it rather than leave it dangling; the frontend
+  // then asks for a fresh reply to the edited message.
+  const { error: delError } = await supabase
+    .from('messages')
+    .delete()
+    .eq('session_id', updated.session_id)
+    .gt('created_at', updated.created_at);
+  if (delError) { res.status(500).json({ error: delError.message }); return; }
+
+  res.json(updated);
 });
 
 app.get('/api/settings', async (req, res) => {
@@ -697,8 +711,13 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
   const message = req.body.message || '';
   const systemOverride = req.body.system;
   const files = req.files || [];
+  // Set by the "edit a sent message" flow — that message's content was
+  // already updated in place (and everything after it already deleted) by
+  // PATCH /api/messages/:id, so this skips inserting a new user row and
+  // just generates a fresh reply against the existing (edited) history.
+  const regenerateMessageId = req.body.regenerateMessageId || null;
 
-  if (!sessionId || (!message.trim() && !files.length)) {
+  if (!sessionId || (!regenerateMessageId && !message.trim() && !files.length)) {
     res.status(400).json({ error: 'sessionId and message (or at least one image) are required' });
     return;
   }
@@ -733,18 +752,20 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       }));
     }
 
-    const { data: insertedUserMessage } = await supabase
-      .from('messages')
-      .insert({
-        session_id: sessionId,
-        role: 'user',
-        content: message,
-        image_url: imageUrls[0] || null,
-        image_urls: imageUrls.length ? imageUrls : null,
-      })
-      .select()
-      .single();
-    if (insertedUserMessage) send({ userMessageId: insertedUserMessage.id });
+    if (!regenerateMessageId) {
+      const { data: insertedUserMessage } = await supabase
+        .from('messages')
+        .insert({
+          session_id: sessionId,
+          role: 'user',
+          content: message,
+          image_url: imageUrls[0] || null,
+          image_urls: imageUrls.length ? imageUrls : null,
+        })
+        .select()
+        .single();
+      if (insertedUserMessage) send({ userMessageId: insertedUserMessage.id });
+    }
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
     const [{ data: history }, { data: memoryRows }, systemPrompt] = await Promise.all([
