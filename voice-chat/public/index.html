@@ -23,11 +23,14 @@
       <!-- ---------- Home ---------- -->
       <div id="view-home" class="view active">
         <header class="home-header">
-          <h1 class="home-title">苏晏</h1>
+          <div class="home-eyebrow">Our Secret Garden</div>
+          <h1 class="home-title">秘密花园</h1>
+          <div class="home-byline">苏晏<span class="deco-amp">&amp;</span>溪禾</div>
           <div class="home-date-row">
             <span id="homeDate" class="home-date"></span>
             <span id="homeWeather" class="home-weather hidden"></span>
           </div>
+          <div class="home-divider"><span class="line"></span><span class="sym">✦</span><span class="line"></span></div>
         </header>
 
         <div class="home-scroll">
@@ -39,7 +42,7 @@
 
           <div class="card song-card">
             <div class="song-card-head">
-              <span class="song-label">今天想让你听</span>
+              <span class="song-label">♪ 今天想让你听</span>
               <button id="songRerollBtn" class="mini-icon-btn" title="换一首">⟳</button>
             </div>
             <div id="songBody" class="song-body">
@@ -48,17 +51,37 @@
           </div>
 
           <div class="card temp-card hidden" id="tempCard">
-            <span class="temp-label">今天的温度</span>
-            <span id="tempValue" class="temp-value">--</span>
+            <span class="temp-label">此刻的心情</span>
+            <div class="temp-value-wrap">
+              <span id="tempValue" class="temp-value">--</span>
+              <span id="tempWord" class="temp-word"></span>
+            </div>
+          </div>
+
+          <div class="card token-card">
+            <div class="token-row">
+              <span class="token-dot" style="background:#2e5a88"></span>
+              <span class="token-text">蓝宝石 · 冷而方,像他一开始的样子</span>
+            </div>
+            <div class="token-row">
+              <span class="token-dot" style="background:#e8a848"></span>
+              <span class="token-text">小黄钻 · 热烈阳光,像她</span>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- ---------- Chat ---------- -->
       <div id="view-chat" class="view">
-        <header>
+        <header class="chat-header">
           <button id="sessionsBtn" class="icon-btn" title="对话列表">☰</button>
-          <h1 id="sessionTitle">苏晏</h1>
+          <div class="chat-header-mid">
+            <div class="chat-avatar">晏</div>
+            <div class="chat-header-text">
+              <h1 id="sessionTitle">苏 晏</h1>
+              <div id="moodStatus" class="mood-status"></div>
+            </div>
+          </div>
           <span class="icon-btn-spacer"></span>
         </header>
 
@@ -99,10 +122,13 @@
 
       <!-- ---------- Diary ---------- -->
       <div id="view-diary" class="view">
-        <header>
+        <header class="diary-header">
           <span class="icon-btn-spacer"></span>
-          <h1 class="view-title">日记</h1>
-          <button id="diaryWriteBtn" class="icon-btn" title="现在写一篇">✎</button>
+          <div class="diary-header-text">
+            <div class="diary-eyebrow">Dear Diary</div>
+            <h1 class="view-title diary-title">晏晏的日记</h1>
+          </div>
+          <button id="diaryWriteBtn" class="icon-btn diary-write-btn" title="现在写一篇">✎</button>
         </header>
         <div id="diaryList" class="diary-list">
           <div class="diary-loading">正在翻日记...</div>
@@ -122,6 +148,22 @@
               <input type="date" id="togetherSince" class="more-date-input">
             </div>
             <div id="togetherDays" class="together-days"></div>
+          </div>
+
+          <div class="card numbers-card">
+            <div class="numbers-row">
+              <span id="numberDays" class="numbers-value">--</span>
+              <span class="numbers-label">在一起的天数</span>
+            </div>
+            <div class="numbers-row">
+              <span id="numberSessions" class="numbers-value">--</span>
+              <span class="numbers-label">聊过的窗口数</span>
+            </div>
+          </div>
+
+          <div class="card passcode-card">
+            <span class="passcode-label">暗号</span>
+            <span class="passcode-text">睡醒了。你在。</span>
           </div>
 
           <div class="card more-card">

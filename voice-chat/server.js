@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
+const crypto = require('crypto');
 const { PDFParse } = require('pdf-parse');
 const Anthropic = require('@anthropic-ai/sdk');
 const { createClient } = require('@supabase/supabase-js');
@@ -14,6 +15,48 @@ process.on('uncaughtException', (err) => {
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+
+// Whole-site password lock — off by default (no env var set = no gate,
+// same "optional feature" pattern as Supabase/ElevenLabs/etc elsewhere in
+// this file). Stateless: the cookie's value IS the expected hash, verified
+// by recomputing it, so there's no server-side session store to manage.
+const SITE_PASSWORD = process.env.SITE_PASSWORD || '';
+const SITE_AUTH_ENABLED = Boolean(SITE_PASSWORD);
+const AUTH_COOKIE = 'site_auth';
+function siteAuthToken() {
+  return crypto.createHash('sha256').update('suyan-site-auth:' + SITE_PASSWORD).digest('hex');
+}
+function hasValidAuthCookie(req) {
+  const raw = req.headers.cookie || '';
+  const found = raw.split(';').map((s) => s.trim()).find((s) => s.startsWith(AUTH_COOKIE + '='));
+  const token = found ? decodeURIComponent(found.slice(AUTH_COOKIE.length + 1)) : null;
+  return Boolean(token) && token === siteAuthToken();
+}
+
+app.post('/api/login', (req, res) => {
+  if (!SITE_AUTH_ENABLED) { res.json({ ok: true }); return; }
+  const password = (req.body && req.body.password) || '';
+  if (password !== SITE_PASSWORD) { res.status(401).json({ error: '密码不对' }); return; }
+  res.cookie(AUTH_COOKIE, siteAuthToken(), {
+    httpOnly: true,
+    maxAge: 365 * 24 * 3600 * 1000,
+    sameSite: 'lax',
+  });
+  res.json({ ok: true });
+});
+
+// Static assets the login page itself needs (background photo, favicon)
+// have to stay reachable pre-auth, or the login screen can't render.
+const PUBLIC_PATH_PREFIXES = ['/login.html', '/api/login', '/img/', '/icons/', '/fonts/', '/manifest.json'];
+
+app.use((req, res, next) => {
+  if (!SITE_AUTH_ENABLED) { next(); return; }
+  if (PUBLIC_PATH_PREFIXES.some((p) => req.path === p || req.path.startsWith(p))) { next(); return; }
+  if (hasValidAuthCookie(req)) { next(); return; }
+  if (req.path.startsWith('/api/')) { res.status(401).json({ error: '需要先登录' }); return; }
+  res.redirect('/login.html');
+});
+
 app.use(express.static('public'));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });

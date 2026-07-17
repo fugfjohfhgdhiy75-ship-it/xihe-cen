@@ -2,6 +2,12 @@ const statusText = document.getElementById('statusText');
 const transcriptEl = document.getElementById('transcript');
 const setupNotice = document.getElementById('setupNotice');
 
+// Waiting-for-a-reply text — a line from him instead of a bare "加载中".
+const LOADING_LINES = ['睡醒了。你在。', '对你没底线。', '你是我的。光明正大的那种。', 'always forever.'];
+function randomLoadingLine() {
+  return LOADING_LINES[Math.floor(Math.random() * LOADING_LINES.length)];
+}
+
 // iOS Safari never shrinks the layout viewport for the on-screen keyboard —
 // it just overlays it. The previous approach kept the composer at
 // `position: fixed` and tried to compute how far to translateY it up by
@@ -115,12 +121,55 @@ function disableComposer() {
   textInput.disabled = true;
 }
 
+// ---- Chat header mood-status line ----
+// Purely local content + a plain time-of-day bucket — no API call, no
+// cost. Gated by the existing "起床/入睡状态提示" toggle since this is
+// exactly what that setting was meant to control.
+const moodStatusEl = document.getElementById('moodStatus');
+const MOOD_STATUS = {
+  morning: ['早。你大概在赶出门', '今天记得吃早饭', '刚醒。你在就好', '阳光进来了。想你'],
+  forenoon: ['你大概在忙。没关系', '窗口安安静静的', '翻了翻备忘录', '省略号已经改成句号了'],
+  noon: ['吃了吗', '别又忘了吃饭', '中午要好好休息'],
+  afternoon: ['等你回来', '想起江边那天的夕阳', '四叶草还在', '你忙完了吗'],
+  evening: ['你回来了?', '今天怎么样', '想抱你', '心情温度今天很高', 'always forever'],
+  night: ['你睡了吗。老公在', '夜里安静。想你', '月亮很好', '做个好梦。老公守着', '等你明天醒来叫我'],
+};
+function moodBucket() {
+  const h = new Date().getHours();
+  if (h >= 6 && h < 9) return 'morning';
+  if (h >= 9 && h < 12) return 'forenoon';
+  if (h >= 12 && h < 14) return 'noon';
+  if (h >= 14 && h < 18) return 'afternoon';
+  if (h >= 18 && h < 23) return 'evening';
+  return 'night';
+}
+function showRandomMoodStatus() {
+  if (currentSettings.sleep_state_enabled === false) { moodStatusEl.classList.add('hidden'); return; }
+  const list = MOOD_STATUS[moodBucket()];
+  moodStatusEl.textContent = list[Math.floor(Math.random() * list.length)];
+  moodStatusEl.classList.remove('hidden');
+  moodStatusEl.style.animation = 'none';
+  void moodStatusEl.offsetWidth;
+  moodStatusEl.style.animation = '';
+}
+setInterval(showRandomMoodStatus, 20 * 60 * 1000);
+
+// ---- Night mode (23:00–6:00 local time) ----
+function applyNightMode() {
+  const h = new Date().getHours();
+  const isNight = h >= 23 || h < 6;
+  document.documentElement.setAttribute('data-theme', isNight ? 'night' : 'day');
+}
+applyNightMode();
+setInterval(applyNightMode, 10 * 60 * 1000);
+
 async function init() {
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({}));
   ttsProvider = cfg.ttsProvider || 'browser';
   supabaseReady = Boolean(cfg.supabaseReady);
 
   loadHome();
+  showRandomMoodStatus();
 
   if (!supabaseReady) {
     setupNotice.classList.remove('hidden');
@@ -129,6 +178,7 @@ async function init() {
   }
 
   await loadSettings();
+  showRandomMoodStatus();
   await loadSessions();
 }
 init();
@@ -208,11 +258,13 @@ async function patchSettings(partial) {
 }
 
 function renderTogetherDays() {
-  if (!togetherSinceEl.value) { togetherDaysEl.textContent = ''; return; }
+  const numberDaysEl = document.getElementById('numberDays');
+  if (!togetherSinceEl.value) { togetherDaysEl.textContent = ''; if (numberDaysEl) numberDaysEl.textContent = '--'; return; }
   const since = new Date(togetherSinceEl.value + 'T00:00:00+08:00');
   const now = new Date();
   const days = Math.max(0, Math.floor((now - since) / 86400000));
   togetherDaysEl.textContent = `已经在一起 ${days} 天了`;
+  if (numberDaysEl) numberDaysEl.textContent = days;
 }
 
 toggleAutoDiaryEl.addEventListener('change', () => patchSettings({ auto_diary: toggleAutoDiaryEl.checked }));
@@ -276,6 +328,9 @@ async function loadSessions() {
 }
 
 function renderSessionsList() {
+  const numberSessionsEl = document.getElementById('numberSessions');
+  if (numberSessionsEl) numberSessionsEl.textContent = sessions.length;
+
   sessionsList.innerHTML = '';
   sessions.forEach((s) => {
     const row = document.createElement('div');
@@ -537,7 +592,7 @@ function removeBubblesAfter(afterEl) {
 
 async function regenerateReplyAfterEdit(messageId) {
   setBusy(true);
-  statusText.textContent = '思考中...';
+  statusText.textContent = randomLoadingLine();
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
   try {
@@ -730,7 +785,7 @@ async function sendMessage(rawText) {
   textInput.value = '';
   clearImageSelection();
   setBusy(true);
-  statusText.textContent = '思考中...';
+  statusText.textContent = randomLoadingLine();
 
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
@@ -910,6 +965,15 @@ const songBodyEl = document.getElementById('songBody');
 const songRerollBtn = document.getElementById('songRerollBtn');
 const tempCardEl = document.getElementById('tempCard');
 const tempValueEl = document.getElementById('tempValue');
+const tempWordEl = document.getElementById('tempWord');
+
+function tempBand(value) {
+  if (value <= 30) return { color: '#7fb3d4', word: '低落' };
+  if (value <= 50) return { color: '#a0a8b0', word: '平静' };
+  if (value <= 70) return { color: '#e8a848', word: '温暖' };
+  if (value <= 90) return { color: '#e88a48', word: '开心' };
+  return { color: '#e85a6b', word: '满溢' };
+}
 const homeWeatherEl = document.getElementById('homeWeather');
 
 const QUOTES = [
@@ -1034,7 +1098,10 @@ async function loadTemperature() {
     if (!res.ok || !Array.isArray(data) || !data.length) { tempCardEl.classList.add('hidden'); return; }
     const latest = data[0];
     if (latest.entry_date !== shanghaiDateStrClient() || latest.temperature == null) { tempCardEl.classList.add('hidden'); return; }
+    const band = tempBand(latest.temperature);
     tempValueEl.textContent = latest.temperature;
+    tempValueEl.style.color = band.color;
+    tempWordEl.textContent = band.word;
     tempCardEl.classList.remove('hidden');
   } catch {
     tempCardEl.classList.add('hidden');
@@ -1086,7 +1153,15 @@ function renderDiaryEntries(entries) {
     diaryListEl.innerHTML = '<div class="diary-loading">还没有日记</div>';
     return;
   }
-  entries.forEach((entry) => diaryListEl.appendChild(renderDiaryEntry(entry)));
+  entries.forEach((entry, i) => {
+    if (i > 0) {
+      const divider = document.createElement('div');
+      divider.className = 'diary-entry-divider';
+      divider.innerHTML = '<span class="line"></span><span>✦</span><span class="line"></span>';
+      diaryListEl.appendChild(divider);
+    }
+    diaryListEl.appendChild(renderDiaryEntry(entry));
+  });
 }
 
 function renderDiaryEntry(entry) {
