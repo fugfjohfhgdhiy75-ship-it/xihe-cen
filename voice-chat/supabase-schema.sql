@@ -38,5 +38,47 @@ insert into settings (id, system_prompt)
 values (1, '')
 on conflict (id) do nothing;
 
+-- Toggles shown on the More/设置 page. All default to on so existing
+-- deployments get the new features enabled without needing to visit
+-- settings first.
+alter table settings add column if not exists show_mood boolean not null default true;
+alter table settings add column if not exists auto_diary boolean not null default true;
+alter table settings add column if not exists sleep_state_enabled boolean not null default true;
+alter table settings add column if not exists daily_song_enabled boolean not null default true;
+alter table settings add column if not exists together_since date;
+
+-- One row per calendar day: the diary entry "苏晏" writes reflecting on
+-- that day's conversations, plus a mood emoji and a 0-100 relationship
+-- "temperature" for the day. user_reply/ai_reply thread onto the same row
+-- since each day only ever has one entry (keeps the reply flow simple —
+-- no separate comments table needed for a single reply-and-response).
+create table if not exists diary_entries (
+  id bigint generated always as identity primary key,
+  entry_date date not null unique,
+  mood_emoji text,
+  temperature int,
+  content text not null,
+  user_reply text,
+  user_replied_at timestamptz,
+  ai_reply text,
+  ai_replied_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- One row per calendar day: the song "苏晏" recommends that day. `rejected`
+-- stores titles already skipped today via "换一首" so a reroll doesn't
+-- immediately suggest the same thing back.
+create table if not exists daily_songs (
+  id bigint generated always as identity primary key,
+  song_date date not null unique,
+  title text not null,
+  artist text not null,
+  reason text,
+  rejected jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
+create index if not exists diary_entries_date_idx on diary_entries (entry_date desc);
+create index if not exists daily_songs_date_idx on daily_songs (song_date desc);

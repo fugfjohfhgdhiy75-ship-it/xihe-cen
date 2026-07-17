@@ -50,11 +50,13 @@ syncAppHeight();
 document.addEventListener('focusin', (e) => {
   if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
   if (composerDock) composerDock.classList.add('kb-open');
+  if (appEl) appEl.classList.add('kb-open');
   [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
 });
 document.addEventListener('focusout', (e) => {
   if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
   if (composerDock) composerDock.classList.remove('kb-open');
+  if (appEl) appEl.classList.remove('kb-open');
   [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
 });
 
@@ -63,15 +65,19 @@ const sessionsPanel = document.getElementById('sessionsPanel');
 const sessionsList = document.getElementById('sessionsList');
 const newSessionBtn = document.getElementById('newSessionBtn');
 
-const settingsBtn = document.getElementById('settingsBtn');
-const settingsPanel = document.getElementById('settingsPanel');
-const closeSettings = document.getElementById('closeSettings');
 const saveSettingsBtn = document.getElementById('saveSettings');
 const systemPromptEl = document.getElementById('systemPrompt');
 const sttLangEl = document.getElementById('sttLang');
 const voiceSelectEl = document.getElementById('voiceSelect');
 const docUpload = document.getElementById('docUpload');
 const docUploadStatus = document.getElementById('docUploadStatus');
+
+const toggleAutoDiaryEl = document.getElementById('toggleAutoDiary');
+const toggleShowMoodEl = document.getElementById('toggleShowMood');
+const toggleDailySongEl = document.getElementById('toggleDailySong');
+const toggleSleepStateEl = document.getElementById('toggleSleepState');
+const togetherSinceEl = document.getElementById('togetherSince');
+const togetherDaysEl = document.getElementById('togetherDays');
 
 const textInput = document.getElementById('textInput');
 const sendBtn = document.getElementById('sendBtn');
@@ -113,6 +119,8 @@ async function init() {
   ttsProvider = cfg.ttsProvider || 'browser';
   supabaseReady = Boolean(cfg.supabaseReady);
 
+  loadHome();
+
   if (!supabaseReady) {
     setupNotice.classList.remove('hidden');
     disableComposer();
@@ -145,24 +153,26 @@ voiceSelectEl.addEventListener('change', () => {
   selectedVoice = voices[voiceSelectEl.value] || null;
 });
 
-settingsBtn.addEventListener('click', () => {
-  sessionsPanel.classList.add('hidden');
-  settingsPanel.classList.toggle('hidden');
-});
-closeSettings.addEventListener('click', () => settingsPanel.classList.add('hidden'));
-
 sessionsBtn.addEventListener('click', () => {
-  settingsPanel.classList.add('hidden');
   sessionsPanel.classList.toggle('hidden');
 });
 
 // ---- Settings (server-persisted) ----
 
+let currentSettings = {};
+
 async function loadSettings() {
   try {
     const res = await fetch('/api/settings');
     const data = await res.json();
+    currentSettings = data || {};
     systemPromptEl.value = data.system_prompt || '';
+    toggleAutoDiaryEl.checked = data.auto_diary !== false;
+    toggleShowMoodEl.checked = data.show_mood !== false;
+    toggleDailySongEl.checked = data.daily_song_enabled !== false;
+    toggleSleepStateEl.checked = data.sleep_state_enabled !== false;
+    togetherSinceEl.value = data.together_since || '';
+    renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
   }
@@ -180,6 +190,37 @@ async function saveSettings() {
     docUploadStatus.textContent = '保存失败: ' + err.message;
   }
 }
+
+async function patchSettings(partial) {
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(partial),
+    });
+    const data = await res.json();
+    if (res.ok) currentSettings = data;
+  } catch (err) {
+    statusText.textContent = '保存设置失败: ' + err.message;
+  }
+}
+
+function renderTogetherDays() {
+  if (!togetherSinceEl.value) { togetherDaysEl.textContent = ''; return; }
+  const since = new Date(togetherSinceEl.value + 'T00:00:00+08:00');
+  const now = new Date();
+  const days = Math.max(0, Math.floor((now - since) / 86400000));
+  togetherDaysEl.textContent = `已经在一起 ${days} 天了`;
+}
+
+toggleAutoDiaryEl.addEventListener('change', () => patchSettings({ auto_diary: toggleAutoDiaryEl.checked }));
+toggleShowMoodEl.addEventListener('change', () => patchSettings({ show_mood: toggleShowMoodEl.checked }));
+toggleDailySongEl.addEventListener('change', () => patchSettings({ daily_song_enabled: toggleDailySongEl.checked }));
+toggleSleepStateEl.addEventListener('change', () => patchSettings({ sleep_state_enabled: toggleSleepStateEl.checked }));
+togetherSinceEl.addEventListener('change', () => {
+  renderTogetherDays();
+  patchSettings({ together_since: togetherSinceEl.value });
+});
 saveSettingsBtn.addEventListener('click', saveSettings);
 
 docUpload.addEventListener('change', async () => {
@@ -764,3 +805,276 @@ imageInput.addEventListener('change', () => {
   imageInput.value = '';
   renderImagePreview();
 });
+
+// ---- Tab navigation ----
+
+const tabBtns = document.querySelectorAll('.tab-btn');
+const views = {
+  home: document.getElementById('view-home'),
+  chat: document.getElementById('view-chat'),
+  diary: document.getElementById('view-diary'),
+  more: document.getElementById('view-more'),
+};
+
+function switchView(name) {
+  if (!views[name]) return;
+  Object.entries(views).forEach(([key, el]) => el.classList.toggle('active', key === name));
+  tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === name));
+  if (name === 'home') loadHome();
+  if (name === 'diary') loadDiary();
+}
+
+tabBtns.forEach((btn) => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+
+// ---- Home ----
+
+const quoteTextEl = document.getElementById('quoteText');
+const quoteRefreshBtn = document.getElementById('quoteRefreshBtn');
+const homeDateEl = document.getElementById('homeDate');
+const songBodyEl = document.getElementById('songBody');
+const songRerollBtn = document.getElementById('songRerollBtn');
+const tempCardEl = document.getElementById('tempCard');
+const tempValueEl = document.getElementById('tempValue');
+
+const QUOTES = [
+  'The best thing to hold onto in life is each other. — Audrey Hepburn',
+  'In all the world, there is no heart for me like yours.',
+  'You are my today and all of my tomorrows.',
+  "Home is wherever I'm with you. — Edward Sharpe",
+  'Whatever our souls are made of, his and mine are the same. — Emily Brontë',
+  'You are my sun, my moon, and all my stars. — E.E. Cummings',
+  'To love and be loved is to feel the sun from both sides.',
+  'I would rather spend one lifetime with you than face all the ages of this world alone.',
+  'Grow old along with me, the best is yet to be. — Robert Browning',
+  'Every love story is beautiful, but ours is my favorite.',
+  'Being deeply loved by someone gives you strength. — Lao Tzu',
+  'You are my heart, my life, my one and only thought. — Arthur Conan Doyle',
+  'A friend is someone who knows all about you and still loves you.',
+  "Love doesn't make the world go round. Love is what makes the ride worthwhile.",
+];
+let lastQuoteIndex = -1;
+function showRandomQuote() {
+  let i = Math.floor(Math.random() * QUOTES.length);
+  if (QUOTES.length > 1 && i === lastQuoteIndex) i = (i + 1) % QUOTES.length;
+  lastQuoteIndex = i;
+  quoteTextEl.textContent = QUOTES[i];
+}
+quoteRefreshBtn.addEventListener('click', showRandomQuote);
+
+function renderHomeDate() {
+  const now = new Date();
+  homeDateEl.textContent = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+}
+
+function renderSong(song) {
+  if (!song) {
+    songBodyEl.innerHTML = '<div class="song-loading">今天先没有推荐</div>';
+    return;
+  }
+  songBodyEl.innerHTML = '';
+  const title = document.createElement('div');
+  title.className = 'song-title';
+  title.textContent = song.title;
+  const artist = document.createElement('div');
+  artist.className = 'song-artist';
+  artist.textContent = song.artist;
+  songBodyEl.appendChild(title);
+  songBodyEl.appendChild(artist);
+  if (song.reason) {
+    const reason = document.createElement('div');
+    reason.className = 'song-reason';
+    reason.textContent = song.reason;
+    songBodyEl.appendChild(reason);
+  }
+}
+
+async function loadSong() {
+  songBodyEl.innerHTML = '<div class="song-loading">正在挑歌...</div>';
+  try {
+    const res = await fetch('/api/daily-song');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '获取失败');
+    renderSong(data);
+  } catch (err) {
+    songBodyEl.innerHTML = `<div class="song-loading">推荐失败: ${err.message}</div>`;
+  }
+}
+
+songRerollBtn.addEventListener('click', async () => {
+  songBodyEl.innerHTML = '<div class="song-loading">换一首...</div>';
+  try {
+    const res = await fetch('/api/daily-song/reroll', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '换歌失败');
+    renderSong(data);
+  } catch (err) {
+    songBodyEl.innerHTML = `<div class="song-loading">换歌失败: ${err.message}</div>`;
+  }
+});
+
+function shanghaiDateStrClient() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000);
+  return d.toISOString().slice(0, 10);
+}
+
+async function loadTemperature() {
+  try {
+    const res = await fetch('/api/diary');
+    const data = await res.json();
+    if (!res.ok || !Array.isArray(data) || !data.length) { tempCardEl.classList.add('hidden'); return; }
+    const latest = data[0];
+    if (latest.entry_date !== shanghaiDateStrClient() || latest.temperature == null) { tempCardEl.classList.add('hidden'); return; }
+    tempValueEl.textContent = latest.temperature;
+    tempCardEl.classList.remove('hidden');
+  } catch {
+    tempCardEl.classList.add('hidden');
+  }
+}
+
+let homeQuoteShown = false;
+async function loadHome() {
+  renderHomeDate();
+  if (!homeQuoteShown) { showRandomQuote(); homeQuoteShown = true; }
+  if (!supabaseReady) return;
+  loadSong();
+  loadTemperature();
+}
+
+// ---- Diary ----
+
+const diaryListEl = document.getElementById('diaryList');
+
+function renderDiaryEntries(entries) {
+  diaryListEl.innerHTML = '';
+  if (!entries.length) {
+    diaryListEl.innerHTML = '<div class="diary-loading">还没有日记</div>';
+    return;
+  }
+  entries.forEach((entry) => diaryListEl.appendChild(renderDiaryEntry(entry)));
+}
+
+function renderDiaryEntry(entry) {
+  const card = document.createElement('div');
+  card.className = 'diary-entry';
+
+  const head = document.createElement('div');
+  head.className = 'diary-entry-head';
+  const date = document.createElement('span');
+  date.className = 'diary-date';
+  date.textContent = entry.entry_date;
+  head.appendChild(date);
+
+  const mood = document.createElement('span');
+  mood.className = 'diary-mood';
+  if (entry.mood_emoji) mood.appendChild(document.createTextNode(entry.mood_emoji));
+  if (entry.temperature != null) {
+    const t = document.createElement('span');
+    t.className = 'diary-temp';
+    t.textContent = entry.temperature;
+    mood.appendChild(t);
+  }
+  head.appendChild(mood);
+  card.appendChild(head);
+
+  const content = document.createElement('div');
+  content.className = 'diary-content';
+  content.textContent = entry.content;
+  card.appendChild(content);
+
+  const thread = document.createElement('div');
+  thread.className = 'diary-thread';
+  card.appendChild(thread);
+
+  if (entry.user_reply) {
+    const mine = document.createElement('div');
+    mine.className = 'diary-reply-block mine';
+    mine.textContent = entry.user_reply;
+    thread.appendChild(mine);
+
+    if (entry.ai_reply) {
+      const hers = document.createElement('div');
+      hers.className = 'diary-reply-block hers';
+      hers.textContent = entry.ai_reply;
+      thread.appendChild(hers);
+    } else {
+      const waiting = document.createElement('div');
+      waiting.className = 'diary-reply-waiting';
+      waiting.textContent = '苏晏正在看...';
+      thread.appendChild(waiting);
+      pollForAiReply(entry.id, waiting);
+    }
+  } else {
+    const form = document.createElement('div');
+    form.className = 'diary-reply-form';
+    const input = document.createElement('input');
+    input.className = 'diary-reply-input';
+    input.type = 'text';
+    input.placeholder = '回复这篇日记...';
+    const replyBtn = document.createElement('button');
+    replyBtn.className = 'diary-reply-send';
+    replyBtn.type = 'button';
+    replyBtn.textContent = '发送';
+    form.appendChild(input);
+    form.appendChild(replyBtn);
+    thread.appendChild(form);
+
+    const submit = async () => {
+      const reply = input.value.trim();
+      if (!reply) return;
+      replyBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/diary/${entry.id}/reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reply }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '回复失败');
+        card.replaceWith(renderDiaryEntry(data));
+      } catch (err) {
+        statusText.textContent = '回复失败: ' + err.message;
+        replyBtn.disabled = false;
+      }
+    };
+    replyBtn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  }
+
+  return card;
+}
+
+// The AI reply is generated in the background after a reply is posted —
+// poll a few times with backoff so it shows up without a manual refresh.
+async function pollForAiReply(id, waitingEl) {
+  for (const delay of [3000, 4000, 5000, 6000, 8000]) {
+    await new Promise((r) => setTimeout(r, delay));
+    if (!document.body.contains(waitingEl)) return;
+    try {
+      const res = await fetch(`/api/diary/${id}`);
+      const data = await res.json();
+      if (res.ok && data.ai_reply) {
+        const hers = document.createElement('div');
+        hers.className = 'diary-reply-block hers';
+        hers.textContent = data.ai_reply;
+        waitingEl.replaceWith(hers);
+        return;
+      }
+    } catch {
+      // keep trying on next iteration
+    }
+  }
+}
+
+async function loadDiary() {
+  if (!supabaseReady) return;
+  diaryListEl.innerHTML = '<div class="diary-loading">正在翻日记...</div>';
+  try {
+    await fetch('/api/diary/generate', { method: 'POST' }).catch(() => {});
+    const res = await fetch('/api/diary');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '加载失败');
+    renderDiaryEntries(data);
+  } catch (err) {
+    diaryListEl.innerHTML = `<div class="diary-loading">加载失败: ${err.message}</div>`;
+  }
+}

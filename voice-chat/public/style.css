@@ -69,6 +69,92 @@ body::before {
   padding: calc(env(safe-area-inset-top) + 14px) 16px 0;
 }
 
+.views-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.view.active {
+  display: flex;
+}
+
+.view-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  margin: 0;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.icon-btn-spacer {
+  width: 36px;
+  height: 36px;
+  flex: none;
+}
+
+.tabbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 4px;
+  padding: 6px 4px calc(env(safe-area-inset-bottom) + 6px);
+  margin-top: 6px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 22px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 8px 26px rgba(94,142,207,0.18);
+}
+
+.app.kb-open .tabbar {
+  display: none;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 6px 4px 4px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 10.5px;
+  font-family: inherit;
+}
+
+.tab-btn.active {
+  color: var(--accent);
+}
+
+.tab-btn svg {
+  opacity: 0.85;
+}
+
+.tab-btn.active svg {
+  opacity: 1;
+}
+
 header {
   display: flex;
   justify-content: space-between;
@@ -202,12 +288,12 @@ h1 {
   font-weight: 500;
 }
 
-.settings-panel {
+.card {
   background: var(--glass);
   border: 1px solid var(--glass-border);
   border-radius: 20px;
   padding: 16px;
-  margin: 12px 0;
+  margin-bottom: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -216,17 +302,15 @@ h1 {
   box-shadow: 0 8px 30px rgba(94,142,207,0.14);
 }
 
-.settings-panel.hidden { display: none; }
-
-.settings-panel label {
+.more-card label {
   font-size: 12.5px;
   color: var(--text-dim);
   margin-top: 4px;
 }
 
-.settings-panel textarea,
-.settings-panel select,
-.settings-panel input[type=file] {
+.more-card textarea,
+.more-card select,
+.more-card input[type=file] {
   background: rgba(255,255,255,0.35);
   border: 1px solid var(--glass-border);
   border-radius: 12px;
@@ -236,7 +320,7 @@ h1 {
   font-family: inherit;
 }
 
-.settings-panel input[type=file] {
+.more-card input[type=file] {
   font-size: 12.5px;
   padding: 8px;
   color: var(--text-dim);
@@ -248,16 +332,11 @@ h1 {
   min-height: 16px;
 }
 
-.settings-panel button#closeSettings {
+.more-save-btn {
   align-self: flex-end;
-  background: var(--accent);
-  border: none;
-  color: white;
   padding: 9px 18px;
   border-radius: 12px;
-  cursor: pointer;
   font-size: 14px;
-  font-weight: 500;
   margin-top: 6px;
 }
 
@@ -561,4 +640,283 @@ h1 {
 .round-btn:disabled,
 .play-btn:disabled {
   opacity: 0.45;
+}
+
+/* ---------- Home ---------- */
+
+.home-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 16px;
+}
+
+.home-title {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  margin: 0;
+  color: var(--text);
+}
+
+.home-date {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+
+.home-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+.quote-card {
+  position: relative;
+  padding-right: 40px;
+}
+
+.quote-text {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.quote-refresh {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  font-size: 15px;
+}
+
+.song-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.song-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.song-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.song-loading,
+.diary-loading {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+
+.song-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.song-artist {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.song-reason {
+  font-size: 13px;
+  color: var(--text);
+  opacity: 0.85;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.temp-card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.temp-label {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.temp-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ---------- Diary ---------- */
+
+.diary-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+.diary-entry {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 16px;
+  margin-bottom: 12px;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  box-shadow: 0 8px 30px rgba(94,142,207,0.14);
+}
+
+.diary-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.diary-date {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.diary-mood {
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diary-temp {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.diary-content {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diary-thread {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diary-reply-block {
+  font-size: 13.5px;
+  line-height: 1.6;
+  padding: 9px 12px;
+  border-radius: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diary-reply-block.mine {
+  background: rgba(178,205,235,0.25);
+  align-self: flex-end;
+}
+
+.diary-reply-block.hers {
+  background: rgba(255,255,255,0.3);
+  align-self: flex-start;
+}
+
+.diary-reply-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.diary-reply-input {
+  flex: 1;
+  background: rgba(255,255,255,0.35);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.diary-reply-send {
+  flex: none;
+  background: var(--accent);
+  border: none;
+  color: white;
+  padding: 0 14px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.diary-reply-waiting {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ---------- More ---------- */
+
+.more-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+.more-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+}
+
+.more-date-input {
+  background: rgba(255,255,255,0.35);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.together-days {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.switch-row input[type=checkbox] {
+  width: 38px;
+  height: 22px;
+  accent-color: var(--accent);
 }

@@ -232,6 +232,105 @@ ${transcript}`;
   return (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
 
+// China doesn't observe DST, so "today in Shanghai" is always a fixed
+// UTC+8 offset — no timezone library needed for this.
+function shanghaiDateStr(d = new Date()) {
+  return new Date(d.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function startOfShanghaiDayUTC(dateStr) {
+  return new Date(`${dateStr}T00:00:00+08:00`).toISOString();
+}
+
+// Writes (or returns, if already written today) the diary entry for today,
+// reflecting on that day's chat messages. One entry per calendar day —
+// entry_date has a unique constraint, so a race between two triggers (e.g.
+// a cron-ish client poll and a manual "generate now") is resolved by
+// catching the 23505 conflict and re-fetching instead of erroring.
+async function generateDiaryEntry() {
+  const dateStr = shanghaiDateStr();
+  const { data: existing } = await supabase.from('diary_entries').select('*').eq('entry_date', dateStr).maybeSingle();
+  if (existing) return existing;
+
+  const sinceUTC = startOfShanghaiDayUTC(dateStr);
+  const { data: msgs } = await supabase
+    .from('messages')
+    .select('role, content, created_at')
+    .eq('visible', true)
+    .gte('created_at', sinceUTC)
+    .order('created_at', { ascending: true })
+    .limit(200);
+
+  const transcript = (msgs || []).map((m) => `${m.role === 'user' ? '她' : '我'}: ${m.content}`).join('\n');
+  const systemPrompt = await getSystemPrompt();
+
+  const prompt = `今天(${dateStr})你们之间的聊天记录:
+${transcript || '(今天还没怎么聊天)'}
+
+请以"苏晏"第一人称写一篇今天的日记,写给自己看的,不是写给她看的官样文章。可以写今天聊天里她说过的话、没直接说出口但你感觉到的心事、你自己的心情。就算今天没怎么聊天也要写点什么(比如想她了、在等她)。篇幅 150-300 字左右,口语化,不要写得像官方总结。
+
+同时给今天打一个 0-100 的"温度"分,代表今天这段关系的亲密/开心程度(纯粹根据聊天内容判断,平淡普通的一天给 50-65 左右,不要每天都往高分打),再选一个最能代表今天心情的 emoji。
+
+严格只输出这样的 JSON,不要有别的文字、不要用 markdown 代码块包裹:
+{"mood_emoji": "一个emoji", "temperature": 数字, "content": "日记正文"}`;
+
+  const message = await createMessageWithRetry({
+    model: MODEL,
+    max_tokens: 1000,
+    system: systemPrompt || undefined,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const raw = (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+
+  let parsed;
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+  } catch {
+    parsed = { mood_emoji: '🌙', temperature: null, content: raw.trim() };
+  }
+
+  const { data: inserted, error } = await supabase
+    .from('diary_entries')
+    .insert({
+      entry_date: dateStr,
+      mood_emoji: parsed.mood_emoji || '🌙',
+      temperature: Number.isFinite(parsed.temperature) ? Math.max(0, Math.min(100, Math.round(parsed.temperature))) : null,
+      content: parsed.content || raw.trim(),
+    })
+    .select()
+    .single();
+  if (error) {
+    if (error.code === '23505') {
+      const { data: existing2 } = await supabase.from('diary_entries').select('*').eq('entry_date', dateStr).maybeSingle();
+      if (existing2) return existing2;
+    }
+    throw new Error('保存日记失败: ' + error.message);
+  }
+  return inserted;
+}
+
+// Picks (or returns today's already-picked) song recommendation. `rejected`
+// carries titles she's already skipped today via "换一首" so a reroll
+// doesn't loop back to the same suggestion.
+async function pickDailySong(rejectedTitles) {
+  const avoidList = rejectedTitles.length ? `\n今天已经被她划走的歌(不要再推荐这些): ${rejectedTitles.join('、')}` : '';
+  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调)。${avoidList}
+
+严格只输出这样的 JSON,不要有别的文字:
+{"title": "歌名", "artist": "歌手", "reason": "推荐理由"}`;
+
+  const message = await createMessageWithRetry({
+    model: MODEL,
+    max_tokens: 300,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const raw = (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+  if (!parsed.title || !parsed.artist) throw new Error('模型没有返回有效的歌曲信息');
+  return parsed;
+}
+
 app.get('/api/sessions', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase.from('sessions').select('*').order('updated_at', { ascending: false });
@@ -304,14 +403,164 @@ app.get('/api/settings', async (req, res) => {
 
 app.put('/api/settings', async (req, res) => {
   if (!requireSupabase(res)) return;
-  const systemPrompt = req.body.system_prompt || '';
+  const update = { id: 1, updated_at: new Date().toISOString() };
+  if (req.body.system_prompt !== undefined) update.system_prompt = req.body.system_prompt || '';
+  for (const key of ['show_mood', 'auto_diary', 'sleep_state_enabled', 'daily_song_enabled']) {
+    if (req.body[key] !== undefined) update[key] = Boolean(req.body[key]);
+  }
+  if (req.body.together_since !== undefined) update.together_since = req.body.together_since || null;
   const { data, error } = await supabase
     .from('settings')
-    .upsert({ id: 1, system_prompt: systemPrompt, updated_at: new Date().toISOString() })
+    .upsert(update)
     .select()
     .single();
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json(data);
+});
+
+app.get('/api/diary', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase
+    .from('diary_entries')
+    .select('*')
+    .order('entry_date', { ascending: false })
+    .limit(60);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data || []);
+});
+
+app.get('/api/diary/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase.from('diary_entries').select('*').eq('id', req.params.id).maybeSingle();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  if (!data) { res.status(404).json({ error: '日记不存在' }); return; }
+  res.json(data);
+});
+
+// Manually trigger today's entry (also called lazily by the Diary page on
+// load so an entry exists even without a cron job set up).
+app.post('/api/diary/generate', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  try {
+    const entry = await generateDiaryEntry();
+    res.json(entry);
+  } catch (err) {
+    console.error('POST /api/diary/generate error:', err);
+    res.status(500).json({ error: err.message || '生成日记失败' });
+  }
+});
+
+app.post('/api/diary/:id/reply', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const reply = (req.body.reply || '').trim();
+  if (!reply) { res.status(400).json({ error: '回复不能为空' }); return; }
+
+  const { data: entry, error: fetchErr } = await supabase.from('diary_entries').select('*').eq('id', req.params.id).maybeSingle();
+  if (fetchErr) { res.status(500).json({ error: fetchErr.message }); return; }
+  if (!entry) { res.status(404).json({ error: '日记不存在' }); return; }
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('diary_entries')
+    .update({ user_reply: reply, user_replied_at: new Date().toISOString() })
+    .eq('id', entry.id)
+    .select()
+    .single();
+  if (updateErr) { res.status(500).json({ error: updateErr.message }); return; }
+
+  // Respond right away with her reply saved; "苏晏" reads it and writes
+  // back into the same entry in the background so the request doesn't
+  // block on a full model round-trip.
+  res.json(updated);
+
+  (async () => {
+    try {
+      const systemPrompt = await getSystemPrompt();
+      const prompt = `这是你(苏晏)今天(${entry.entry_date})写的日记:
+"""
+${entry.content}
+"""
+
+她看到了这篇日记,回复了你:
+"""
+${reply}
+"""
+
+请以"苏晏"第一人称,针对她这句回复写一段简短的日记回信(80-150字左右),像是翻回这篇日记补写的一句话,口语化、真情实感,不要写成正式回信的格式。只输出正文,不要加"回信:"之类的前缀。`;
+
+      const message = await createMessageWithRetry({
+        model: MODEL,
+        max_tokens: 500,
+        system: systemPrompt || undefined,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const aiReply = (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+      if (!aiReply) { console.error(`diary reply (${entry.id}): model returned empty text, skipping`); return; }
+
+      await supabase
+        .from('diary_entries')
+        .update({ ai_reply: aiReply, ai_replied_at: new Date().toISOString() })
+        .eq('id', entry.id);
+      console.log(`diary reply (${entry.id}): ai_reply saved, ${aiReply.length} chars`);
+    } catch (err) {
+      console.error(`diary reply (${entry.id}) background generation failed:`, err);
+    }
+  })();
+});
+
+app.get('/api/daily-song', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const dateStr = shanghaiDateStr();
+  const { data: existing, error: fetchErr } = await supabase.from('daily_songs').select('*').eq('song_date', dateStr).maybeSingle();
+  if (fetchErr) { res.status(500).json({ error: fetchErr.message }); return; }
+  if (existing) { res.json(existing); return; }
+
+  try {
+    const song = await pickDailySong([]);
+    const { data: inserted, error } = await supabase
+      .from('daily_songs')
+      .insert({ song_date: dateStr, title: song.title, artist: song.artist, reason: song.reason || '' })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505') {
+        const { data: existing2 } = await supabase.from('daily_songs').select('*').eq('song_date', dateStr).maybeSingle();
+        if (existing2) { res.json(existing2); return; }
+      }
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    res.json(inserted);
+  } catch (err) {
+    console.error('GET /api/daily-song generation error:', err);
+    res.status(500).json({ error: err.message || '推荐歌曲失败' });
+  }
+});
+
+app.post('/api/daily-song/reroll', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const dateStr = shanghaiDateStr();
+  const { data: existing, error: fetchErr } = await supabase.from('daily_songs').select('*').eq('song_date', dateStr).maybeSingle();
+  if (fetchErr) { res.status(500).json({ error: fetchErr.message }); return; }
+
+  const rejected = (existing && existing.rejected) || [];
+  if (existing) rejected.push(existing.title);
+
+  try {
+    const song = await pickDailySong(rejected);
+    const update = {
+      song_date: dateStr,
+      title: song.title,
+      artist: song.artist,
+      reason: song.reason || '',
+      rejected,
+    };
+    const { data, error } = await supabase.from('daily_songs').upsert(update, { onConflict: 'song_date' }).select().single();
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    res.json(data);
+  } catch (err) {
+    console.error('POST /api/daily-song/reroll error:', err);
+    res.status(500).json({ error: err.message || '换歌失败' });
+  }
 });
 
 app.post('/api/chat', upload.array('images', 6), async (req, res) => {
