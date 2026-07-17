@@ -282,7 +282,7 @@ h1 {
 
 .bubble {
   padding: 9px 14px;
-  border-radius: 18px;
+  border-radius: 20px;
   font-size: 16px;
   font-weight: 400;
   line-height: 1.4;
@@ -292,7 +292,7 @@ h1 {
   flex-direction: column;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   animation: rise 0.2s ease-out;
-  background: rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.2);
   border: 1px solid rgba(255,255,255,0.4);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -311,13 +311,11 @@ h1 {
 
 .bubble.user {
   align-self: flex-end;
-  background: rgba(178,205,235,0.35);
-  border-bottom-right-radius: 6px;
+  background: rgba(178,205,235,0.2);
 }
 
 .bubble.assistant {
   align-self: flex-start;
-  border-bottom-left-radius: 6px;
 }
 
 .bubble .bubble-text {
