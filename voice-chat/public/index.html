@@ -24,7 +24,10 @@
       <div id="view-home" class="view active">
         <header class="home-header">
           <h1 class="home-title">苏晏</h1>
-          <div id="homeDate" class="home-date"></div>
+          <div class="home-date-row">
+            <span id="homeDate" class="home-date"></span>
+            <span id="homeWeather" class="home-weather hidden"></span>
+          </div>
         </header>
 
         <div class="home-scroll">
@@ -119,6 +122,13 @@
               <input type="date" id="togetherSince" class="more-date-input">
             </div>
             <div id="togetherDays" class="together-days"></div>
+          </div>
+
+          <div class="card more-card">
+            <div class="more-row">
+              <span>所在城市(用于天气)</span>
+              <input type="text" id="weatherCity" class="more-text-input" placeholder="比如 上海">
+            </div>
           </div>
 
           <div class="card more-card">

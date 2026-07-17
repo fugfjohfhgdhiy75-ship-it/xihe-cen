@@ -78,6 +78,7 @@ const toggleDailySongEl = document.getElementById('toggleDailySong');
 const toggleSleepStateEl = document.getElementById('toggleSleepState');
 const togetherSinceEl = document.getElementById('togetherSince');
 const togetherDaysEl = document.getElementById('togetherDays');
+const weatherCityEl = document.getElementById('weatherCity');
 
 const textInput = document.getElementById('textInput');
 const sendBtn = document.getElementById('sendBtn');
@@ -172,6 +173,7 @@ async function loadSettings() {
     toggleDailySongEl.checked = data.daily_song_enabled !== false;
     toggleSleepStateEl.checked = data.sleep_state_enabled !== false;
     togetherSinceEl.value = data.together_since || '';
+    weatherCityEl.value = data.weather_city || '';
     renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
@@ -220,6 +222,10 @@ toggleSleepStateEl.addEventListener('change', () => patchSettings({ sleep_state_
 togetherSinceEl.addEventListener('change', () => {
   renderTogetherDays();
   patchSettings({ together_since: togetherSinceEl.value });
+});
+weatherCityEl.addEventListener('change', () => {
+  patchSettings({ weather_city: weatherCityEl.value });
+  loadWeather();
 });
 saveSettingsBtn.addEventListener('click', saveSettings);
 
@@ -836,6 +842,7 @@ const songBodyEl = document.getElementById('songBody');
 const songRerollBtn = document.getElementById('songRerollBtn');
 const tempCardEl = document.getElementById('tempCard');
 const tempValueEl = document.getElementById('tempValue');
+const homeWeatherEl = document.getElementById('homeWeather');
 
 const QUOTES = [
   { en: 'The best thing to hold onto in life is each other. — Audrey Hepburn', zh: '生命中最值得握住的,就是彼此。—— 奥黛丽·赫本' },
@@ -866,6 +873,18 @@ quoteRefreshBtn.addEventListener('click', showRandomQuote);
 function renderHomeDate() {
   const now = new Date();
   homeDateEl.textContent = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+}
+
+async function loadWeather() {
+  try {
+    const res = await fetch('/api/weather');
+    const data = await res.json();
+    if (!res.ok || !data || !data.emoji) { homeWeatherEl.classList.add('hidden'); return; }
+    homeWeatherEl.textContent = `${data.emoji} ${data.tempC}°C ${data.city || ''}`;
+    homeWeatherEl.classList.remove('hidden');
+  } catch {
+    homeWeatherEl.classList.add('hidden');
+  }
 }
 
 function renderSong(song) {
@@ -957,6 +976,7 @@ async function loadHome() {
   if (!supabaseReady) return;
   loadSong();
   loadTemperature();
+  loadWeather();
 }
 
 // ---- Diary ----
@@ -1010,13 +1030,8 @@ function renderDiaryEntry(entry) {
 
   const mood = document.createElement('span');
   mood.className = 'diary-mood';
+  if (entry.weather) mood.appendChild(document.createTextNode(entry.weather + ' '));
   if (entry.mood_emoji) mood.appendChild(document.createTextNode(entry.mood_emoji));
-  if (entry.temperature != null) {
-    const t = document.createElement('span');
-    t.className = 'diary-temp';
-    t.textContent = entry.temperature;
-    mood.appendChild(t);
-  }
   head.appendChild(mood);
   card.appendChild(head);
 

@@ -355,6 +355,7 @@ h1 {
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 7px;
   padding: 10px 2px 6px;
 }
@@ -661,10 +662,21 @@ h1 {
   color: var(--text);
 }
 
+.home-date-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .home-date {
   font-size: 11.5px;
   color: var(--text-dim);
   letter-spacing: 0.06em;
+}
+
+.home-weather {
+  font-size: 11.5px;
+  color: var(--text-dim);
 }
 
 .home-scroll {
@@ -813,12 +825,6 @@ h1 {
   gap: 6px;
 }
 
-.diary-temp {
-  font-size: 11px;
-  color: var(--accent);
-  font-weight: 600;
-}
-
 .diary-content {
   font-size: 14.5px;
   line-height: 1.7;
@@ -907,7 +913,8 @@ h1 {
   font-size: 14px;
 }
 
-.more-date-input {
+.more-date-input,
+.more-text-input {
   background: rgba(255,255,255,0.35);
   border: 1px solid var(--glass-border);
   border-radius: 10px;
@@ -915,6 +922,11 @@ h1 {
   padding: 6px 8px;
   font-size: 13px;
   font-family: inherit;
+}
+
+.more-text-input {
+  width: 110px;
+  text-align: right;
 }
 
 .together-days {

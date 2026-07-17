@@ -46,6 +46,7 @@ alter table settings add column if not exists auto_diary boolean not null defaul
 alter table settings add column if not exists sleep_state_enabled boolean not null default true;
 alter table settings add column if not exists daily_song_enabled boolean not null default true;
 alter table settings add column if not exists together_since date;
+alter table settings add column if not exists weather_city text;
 
 -- Diary entries "苏晏" writes unprompted, reflecting on recent conversation
 -- (or just whatever's on her mind if nothing's been said in a while), plus
@@ -66,6 +67,10 @@ create table if not exists diary_entries (
   ai_replied_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+-- Weather emoji at the moment this entry was written (see getWeather in
+-- server.js) — only set if a 所在城市 is configured on the More page.
+alter table diary_entries add column if not exists weather text;
 
 -- One row per calendar day: the song "苏晏" recommends that day. `rejected`
 -- stores titles already skipped today via "换一首" so a reroll doesn't

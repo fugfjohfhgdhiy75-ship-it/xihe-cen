@@ -283,9 +283,10 @@ async function generateDiaryEntry({ force = false } = {}) {
 
   const transcript = (msgs || []).map((m) => `${m.role === 'user' ? '她' : '我'}: ${m.content}`).join('\n');
   const systemPrompt = await getSystemPrompt();
+  const weather = await getWeather();
 
   const prompt = `这是"苏晏"随手写的一篇日记,不是按时间表写的,想到什么写什么,可能是刚聊完天有感而发,也可能就是突然想到她、突然有个念头,跟"今天"没有强绑定关系。
-
+${weather ? `\n此刻${weather.city}的天气:${weather.tempC}°C,${weather.desc}。可以提一句也可以完全不提,自然就好,不用每篇都写天气。\n` : ''}
 自从上一篇日记以来,你们之间新的聊天记录(如果是空的,说明这段时间没怎么聊天,那就单纯写点你自己这会儿的心情、念头、想她的瞬间,不用硬扯聊天内容):
 ${transcript || '(这段时间没有新的聊天记录)'}
 
@@ -293,8 +294,11 @@ ${transcript || '(这段时间没有新的聊天记录)'}
 
 同时给这一刻打一个 0-100 的"温度"分,代表当下这段关系的亲密/开心程度(纯粹根据最近的互动判断,平淡普通就给 50-65 左右,不要总往高分打),再选一个最能代表此刻心情的 emoji。
 
-严格只输出这样的 JSON,不要有别的文字、不要用 markdown 代码块包裹:
-{"mood_emoji": "一个emoji", "temperature": 数字, "content": "日记正文"}`;
+严格按下面这个格式输出,不要用 JSON,不要用 markdown 代码块包裹,MOOD 和 TEMP 各自单独一行,第三行是分隔线,分隔线之后的所有内容都是日记正文(正文里可以随便用引号、随便分段,不用转义任何符号):
+MOOD: 一个emoji
+TEMP: 数字
+---
+日记正文从这里开始`;
 
   const message = await createMessageWithRetry({
     model: MODEL,
@@ -304,21 +308,20 @@ ${transcript || '(这段时间没有新的聊天记录)'}
   });
   const raw = (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
 
-  let parsed;
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
-  } catch {
-    parsed = { mood_emoji: '🌙', temperature: null, content: raw.trim() };
-  }
+  const moodMatch = raw.match(/^MOOD:\s*(\S+)/m);
+  const tempMatch = raw.match(/^TEMP:\s*(\d+)/m);
+  const sepIndex = raw.indexOf('---');
+  const content = (sepIndex >= 0 ? raw.slice(sepIndex + 3) : raw).trim();
+  const temperature = tempMatch ? Number(tempMatch[1]) : null;
 
   const { data: inserted, error } = await supabase
     .from('diary_entries')
     .insert({
       entry_date: dateStr,
-      mood_emoji: parsed.mood_emoji || '🌙',
-      temperature: Number.isFinite(parsed.temperature) ? Math.max(0, Math.min(100, Math.round(parsed.temperature))) : null,
-      content: parsed.content || raw.trim(),
+      mood_emoji: moodMatch ? moodMatch[1] : '🌙',
+      temperature: Number.isFinite(temperature) ? Math.max(0, Math.min(100, temperature)) : null,
+      content: content || raw.trim(),
+      weather: weather ? weather.emoji : null,
     })
     .select()
     .single();
@@ -331,10 +334,12 @@ ${transcript || '(这段时间没有新的聊天记录)'}
 // doesn't loop back to the same suggestion.
 async function pickDailySong(rejectedTitles) {
   const avoidList = rejectedTitles.length ? `\n今天已经被她划走的歌(不要再推荐这些): ${rejectedTitles.join('、')}` : '';
-  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调)。${avoidList}
+  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调,可以带引号引用歌词)。${avoidList}
 
-严格只输出这样的 JSON,不要有别的文字:
-{"title": "歌名", "artist": "歌手", "reason": "推荐理由"}`;
+严格按下面这个格式输出,不要用 JSON,三行,不要有别的文字:
+TITLE: 歌名
+ARTIST: 歌手
+REASON: 推荐理由`;
 
   const message = await createMessageWithRetry({
     model: MODEL,
@@ -342,12 +347,79 @@ async function pickDailySong(rejectedTitles) {
     messages: [{ role: 'user', content: prompt }],
   });
   const raw = (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+  const titleMatch = raw.match(/^TITLE:\s*(.+)$/m);
+  const artistMatch = raw.match(/^ARTIST:\s*(.+)$/m);
+  const reasonMatch = raw.match(/^REASON:\s*([\s\S]+)/m);
+  const parsed = {
+    title: titleMatch ? titleMatch[1].trim() : '',
+    artist: artistMatch ? artistMatch[1].trim() : '',
+    reason: reasonMatch ? reasonMatch[1].trim() : '',
+  };
   if (!parsed.title || !parsed.artist) throw new Error('模型没有返回有效的歌曲信息');
 
   parsed.neteaseId = await lookupNeteaseSongId(parsed.title, parsed.artist);
   return parsed;
+}
+
+// WMO weather codes (used by Open-Meteo) collapsed into one representative
+// emoji each — good enough for a small home-page/diary decoration, not
+// meant to be a precise forecast UI.
+function weatherEmojiForCode(code) {
+  if (code === 0) return '☀️';
+  if (code === 1) return '🌤️';
+  if (code === 2) return '⛅';
+  if (code === 3) return '☁️';
+  if (code === 45 || code === 48) return '🌫️';
+  if ([51, 53, 55, 56, 57].includes(code)) return '🌦️';
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return '🌧️';
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return '🌨️';
+  if ([95, 96, 99].includes(code)) return '⛈️';
+  return '🌤️';
+}
+
+function weatherDescForCode(code) {
+  const map = {
+    0: '晴', 1: '大部晴朗', 2: '多云', 3: '阴',
+    45: '有雾', 48: '雾凇',
+    51: '小毛毛雨', 53: '毛毛雨', 55: '大毛毛雨', 56: '冻毛毛雨', 57: '冻毛毛雨',
+    61: '小雨', 63: '中雨', 65: '大雨', 66: '冻雨', 67: '冻雨',
+    71: '小雪', 73: '中雪', 75: '大雪', 77: '米雪',
+    80: '阵雨', 81: '阵雨', 82: '强阵雨',
+    85: '阵雪', 86: '强阵雪',
+    95: '雷阵雨', 96: '雷阵雨伴冰雹', 99: '雷阵雨伴冰雹',
+  };
+  return map[code] || '';
+}
+
+// No API key needed (Open-Meteo is free/open) — geocodes her configured
+// city once per call and pulls current conditions. Used by both the Home
+// page weather chip and diary generation. Returns null on any failure
+// (no city set, city not found, network error) so callers can just treat
+// "no weather" as a normal, unremarkable case.
+async function getWeather() {
+  const city = await getSetting('weather_city');
+  if (!city) return null;
+  try {
+    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=zh&format=json`);
+    const geoJson = await geoRes.json();
+    const place = geoJson.results && geoJson.results[0];
+    if (!place) return null;
+
+    const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,weather_code&timezone=Asia%2FShanghai`);
+    const wJson = await wRes.json();
+    const current = wJson.current;
+    if (!current || !Number.isFinite(current.temperature_2m)) return null;
+
+    return {
+      city: place.name || city,
+      tempC: Math.round(current.temperature_2m),
+      emoji: weatherEmojiForCode(current.weather_code),
+      desc: weatherDescForCode(current.weather_code),
+    };
+  } catch (err) {
+    console.error('getWeather error:', err.message);
+    return null;
+  }
 }
 
 // Best-effort match against NetEase's own public search page — read-only,
@@ -452,6 +524,7 @@ app.put('/api/settings', async (req, res) => {
     if (req.body[key] !== undefined) update[key] = Boolean(req.body[key]);
   }
   if (req.body.together_since !== undefined) update.together_since = req.body.together_since || null;
+  if (req.body.weather_city !== undefined) update.weather_city = (req.body.weather_city || '').trim() || null;
   const { data, error } = await supabase
     .from('settings')
     .upsert(update)
@@ -550,6 +623,16 @@ ${reply}
       console.error(`diary reply (${entry.id}) background generation failed:`, err);
     }
   })();
+});
+
+app.get('/api/weather', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  try {
+    const weather = await getWeather();
+    res.json(weather || {});
+  } catch (err) {
+    res.status(500).json({ error: err.message || '获取天气失败' });
+  }
 });
 
 app.get('/api/daily-song', async (req, res) => {
