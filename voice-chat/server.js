@@ -47,7 +47,10 @@ app.post('/api/login', (req, res) => {
 
 // Static assets the login page itself needs (background photo, favicon)
 // have to stay reachable pre-auth, or the login screen can't render.
-const PUBLIC_PATH_PREFIXES = ['/login.html', '/api/login', '/img/', '/icons/', '/fonts/', '/manifest.json'];
+// /api/netease-test is a connectivity self-check (no secrets in it) kept
+// outside the auth gate so it can be opened in any browser for debugging
+// without a login round-trip.
+const PUBLIC_PATH_PREFIXES = ['/login.html', '/api/login', '/api/netease-test', '/img/', '/icons/', '/fonts/', '/manifest.json'];
 
 app.use((req, res, next) => {
   if (!SITE_AUTH_ENABLED) { next(); return; }
@@ -804,6 +807,37 @@ ${reply}
       console.error(`diary reply (${entry.id}) background generation failed:`, err);
     }
   })();
+});
+
+// Connectivity self-check for the NetEase song lookup — runs one real
+// search from this server and reports exactly what came back, so "是通了
+// 还是被墙" is answerable from a phone screenshot instead of guessing
+// from scattered logs.
+app.get('/api/netease-test', async (req, res) => {
+  const q = encodeURIComponent('夜空中最亮的星 逃跑计划');
+  try {
+    const r = await fetch(`https://music.163.com/api/search/get/web?s=${q}&type=1&offset=0&limit=3`, {
+      headers: {
+        Referer: 'https://music.163.com/',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+      },
+    });
+    const bodyText = await r.text();
+    let parsed = null;
+    let parsedOk = false;
+    try { parsed = JSON.parse(bodyText); parsedOk = true; } catch {}
+    const songs = (parsedOk && parsed.result && parsed.result.songs) || [];
+    res.json({
+      结论: songs.length ? '✅ 网易云搜索通了,能匹配到歌' : (parsedOk ? '⚠️ 接口回了数据但没有歌(可能是接口行为变了)' : '❌ 被网易云拦了(返回的不是数据)'),
+      httpStatus: r.status,
+      contentType: r.headers.get('content-type'),
+      songsFound: songs.length,
+      firstSong: songs[0] ? { id: songs[0].id, name: songs[0].name, artist: songs[0].artists && songs[0].artists[0] && songs[0].artists[0].name } : null,
+      bodyPreview: bodyText.slice(0, 200),
+    });
+  } catch (err) {
+    res.status(500).json({ 结论: '❌ 连不上网易云: ' + err.message });
+  }
 });
 
 app.get('/api/weather', async (req, res) => {
