@@ -575,6 +575,36 @@ h1 {
   line-break: loose;
 }
 
+.bubble .bubble-time {
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+
+.bubble.user .bubble-time {
+  align-self: flex-end;
+}
+
+.bubble .bubble-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 5px;
+}
+
+.bubble.user .bubble-actions {
+  justify-content: flex-end;
+}
+
+.bubble .bubble-action-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-family: inherit;
+}
+
 /* Distinct but still both legible on the glass — his replies read as a
    near-black neutral, hers a deeper blue that echoes the user-bubble
    tint, so at a glance who's talking is obvious without needing to check

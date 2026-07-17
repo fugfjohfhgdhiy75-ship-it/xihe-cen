@@ -519,7 +519,7 @@ async function selectSession(id) {
     if (!res.ok) throw new Error(msgs.error || `HTTP ${res.status}`);
     msgs.forEach((m) => {
       const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
-      const bubble = appendBubble(m.role, m.content, imageUrls, m.id);
+      const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at);
       if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
     });
     statusText.textContent = '';
@@ -577,9 +577,21 @@ function renderBubbleText(el, text) {
   });
 }
 
-function appendBubble(role, text, imageUrls, id) {
+function formatMsgTime(value) {
+  const d = value ? new Date(value) : new Date();
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function appendBubble(role, text, imageUrls, id, createdAt) {
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
+
+  const timeEl = document.createElement('div');
+  timeEl.className = 'bubble-time';
+  timeEl.textContent = formatMsgTime(createdAt);
+  div.appendChild(timeEl);
 
   const urls = Array.isArray(imageUrls) ? imageUrls : (imageUrls ? [imageUrls] : []);
   if (urls.length) {
@@ -640,6 +652,35 @@ function appendBubble(role, text, imageUrls, id) {
   }
   bubble.editBtn = editBtn;
 
+  const actions = document.createElement('div');
+  actions.className = 'bubble-actions';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'bubble-action-btn';
+  copyBtn.textContent = '复制';
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(bubble.textEl.textContent);
+      copyBtn.textContent = '已复制';
+      setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
+    } catch {
+      statusText.textContent = '复制失败,长按文字手动复制吧';
+    }
+  });
+  actions.appendChild(copyBtn);
+
+  if (role === 'assistant') {
+    const regenBtn = document.createElement('button');
+    regenBtn.type = 'button';
+    regenBtn.className = 'bubble-action-btn';
+    regenBtn.textContent = '重新回答';
+    regenBtn.addEventListener('click', () => regenerateAssistantBubble(bubble));
+    actions.appendChild(regenBtn);
+  }
+
+  div.appendChild(actions);
+
   transcriptEl.appendChild(div);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   return bubble;
@@ -654,7 +695,8 @@ function attachImageToBubble(bubble, url) {
   img.src = url;
   img.alt = '图片';
   grid.appendChild(img);
-  bubble.el.insertBefore(grid, bubble.el.firstChild);
+  // After the timestamp (first child), before the text row.
+  bubble.el.insertBefore(grid, bubble.el.children[1] || null);
 }
 
 function startEditBubble(bubble) {
@@ -732,6 +774,30 @@ function removeBubblesAfter(afterEl) {
   }
 }
 
+// "重新回答": only the newest reply can be redone — anything older has
+// later conversation built on top of it, and regenerating it would fork
+// history. Deletes the row server-side, then reuses the same
+// regenerate flow the edit feature uses.
+async function regenerateAssistantBubble(bubble) {
+  if (bubble.el !== transcriptEl.lastElementChild) {
+    statusText.textContent = '只能重新生成最后一条回复';
+    return;
+  }
+  if (!bubble.id) { statusText.textContent = '这条还没保存好,等一下再试'; return; }
+  try {
+    const res = await fetch(`/api/messages/${bubble.id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || '删除失败');
+    }
+  } catch (err) {
+    statusText.textContent = '重新回答失败: ' + err.message;
+    return;
+  }
+  bubble.el.remove();
+  regenerateReplyAfterEdit('regen');
+}
+
 async function regenerateReplyAfterEdit(messageId) {
   setBusy(true);
   statusText.textContent = randomLoadingLine();
@@ -764,6 +830,7 @@ async function regenerateReplyAfterEdit(messageId) {
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
+        if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
       }
     }
 
@@ -968,6 +1035,7 @@ async function sendMessage(rawText) {
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
+        if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
       }
     }
 
@@ -1481,7 +1549,7 @@ let listenStartedAt = 0;
 let noiseSamples = [];
 let voiceThreshold = 0.025;
 
-const SILENCE_MS = 1300;       // pause this long after speaking = turn over
+const SILENCE_MS = 2000;       // pause this long after speaking = turn over (roomy enough for multi-sentence thoughts)
 const MIN_SPEECH_MS = 250;     // shorter blips than this don't count as speech
 const IDLE_RECYCLE_MS = 25000; // restart recorder if nothing said for this long
 

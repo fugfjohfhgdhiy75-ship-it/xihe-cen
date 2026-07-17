@@ -317,6 +317,13 @@ function shanghaiDateStr(d = new Date()) {
 function startOfShanghaiDayUTC(dateStr) {
   return new Date(`${dateStr}T00:00:00+08:00`).toISOString();
 }
+function shanghaiNowStr() {
+  return new Date().toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
 
 async function getSetting(key) {
   if (!SUPABASE_READY) return undefined;
@@ -622,6 +629,20 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
     .order('created_at', { ascending: true });
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json(data);
+});
+
+// Used by the "重新回答" button: the last assistant reply is deleted and
+// then regenerated via POST /api/chat's regenerateMessageId mode.
+// Assistant-only on purpose — her own messages are edited, not deleted.
+app.delete('/api/messages/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { error } = await supabase
+    .from('messages')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('role', 'assistant');
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
 });
 
 app.patch('/api/messages/:id', async (req, res) => {
@@ -1058,6 +1079,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // Real conversation varies in length and register with the moment.
     systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
+    systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
     if (GEMINI_READY) {
       systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。');
     }
@@ -1117,8 +1139,8 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     } else {
       const insertPayload = { session_id: sessionId, role: 'assistant', content: text };
       if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
-      await supabase.from('messages').insert(insertPayload);
-      send({ text, imageUrl });
+      const { data: insertedReply } = await supabase.from('messages').insert(insertPayload).select().single();
+      send({ text, imageUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
       send({ done: true });
       compressIfNeeded(sessionId)
         .then(() => consolidateMemoriesIfNeeded(sessionId))
@@ -1448,6 +1470,7 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
     const systemParts = [systemPrompt];
     if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
     systemParts.push('现在是语音通话,她刚才那句话是说出来的,你的回复会被念出来给她听。所以:像打电话一样说话——短句、口语、直接,一次别说太长(两三句为宜);不要用括号动作描写、不要用列表或任何书面排版;语气跟着她这句话走。');
+    systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。`);
 
     const claudeMessage = await createMessageWithRetry({
       model: currentModel(),
