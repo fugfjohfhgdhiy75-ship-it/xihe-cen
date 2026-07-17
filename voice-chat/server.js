@@ -129,15 +129,29 @@ async function compressIfNeeded(sessionId) {
 
   const toCompress = rows.slice(0, rows.length - COMPRESS_KEEP_MESSAGES);
   const transcript = toCompress.map((m) => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`).join('\n');
+  console.log(`compressIfNeeded: session ${sessionId} at ${totalChars} chars over ${rows.length} messages, compressing oldest ${toCompress.length}`);
 
   try {
     const summary = await summarizeText(transcript);
-    if (!summary) return;
+    if (!summary) {
+      console.error('compressIfNeeded: summarizeText returned empty, skipping compression this round (history left uncompressed)');
+      return;
+    }
 
     await supabase.from('memories').insert({ session_id: sessionId, summary });
     await supabase.from('messages').update({ visible: false }).in('id', toCompress.map((m) => m.id));
+    console.log(`compressIfNeeded: session ${sessionId} compressed successfully, summary is ${summary.length} chars`);
   } catch (err) {
-    console.error('compressIfNeeded error:', err);
+    // Compression failing just means history keeps growing uncompressed —
+    // it does NOT lose anything by itself, but if this keeps failing (e.g.
+    // the relay flaking on the summarization call too) the raw context sent
+    // on every turn keeps ballooning, which is what eventually reads as
+    // "it suddenly forgot everything" — the model's effective attention
+    // degrades over a long enough raw context long before any hard token
+    // limit is hit. This log line is the way to tell whether that's what's
+    // happening: repeated errors here without a matching "compressed
+    // successfully" line means the session's context is growing unchecked.
+    console.error(`compressIfNeeded error (session ${sessionId}, history staying uncompressed):`, err);
   }
 }
 
@@ -170,7 +184,7 @@ ${transcript}`;
     return json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
   }
 
-  const message = await anthropic.messages.create({
+  const message = await createMessageWithRetry({
     model: MODEL,
     max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
