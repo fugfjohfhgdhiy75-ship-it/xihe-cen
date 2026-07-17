@@ -422,15 +422,33 @@ async function selectSession(id) {
 // ---- Chat bubbles ----
 
 // The model writes in a screenplay-ish style — every action beat and line
-// of dialogue gets its own paragraph, separated by a blank line — and
-// `white-space: pre-wrap` renders each one as a forced line break. Even
-// after collapsing blank gaps, that still means most "lines" are really
-// short sentence fragments that end long before the bubble's right edge,
-// instead of flowing prose that wraps by width like a normal chat bubble.
-// Flatten everything to one continuous block and let the browser wrap it
-// naturally (display only — doesn't touch what's stored/edited/sent to TTS).
+// of dialogue gets its own paragraph, separated by a blank line — which
+// read as too many short, choppy line-fragments. Flattened to one solid
+// block first, but that read as airless for longer replies. Middle
+// ground: flatten, then re-break into paragraphs by grouping sentences —
+// every ~2-3 sentences (or once a paragraph gets long enough) gets a
+// blank line, roughly approximating a natural speaking pause, without
+// going back to "one line per beat." Display only — doesn't touch
+// what's stored/edited/sent to TTS.
 function formatForDisplay(text) {
-  return text.replace(/\s*\n+\s*/g, ' ').trim();
+  const flat = text.replace(/\s*\n+\s*/g, ' ').trim();
+  const sentences = flat.match(/[^。!?!?…]+[。!?!?…]*/g) || [flat];
+
+  const paragraphs = [];
+  let buf = '';
+  let sentenceCount = 0;
+  sentences.forEach((s) => {
+    buf += s;
+    sentenceCount += 1;
+    if (sentenceCount >= 3 || buf.length >= 40) {
+      paragraphs.push(buf.trim());
+      buf = '';
+      sentenceCount = 0;
+    }
+  });
+  if (buf.trim()) paragraphs.push(buf.trim());
+
+  return paragraphs.join('\n\n');
 }
 
 // The model sometimes writes markdown-style **bold** for emphasis, but the
