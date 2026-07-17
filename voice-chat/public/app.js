@@ -911,17 +911,21 @@ function renderSong(song) {
   // No login/cookie/reverse-engineered playback involved — just a link she
   // taps herself. When the server found a matching NetEase song id
   // (best-effort search match, see lookupNeteaseSongId in server.js), link
-  // straight to that song's canonical page — NetEase's app is registered
-  // for universal links on that URL shape, so tapping it jumps directly
-  // into the app to that exact song instead of a search results page.
-  // Falls back to a plain search link when no confident match was found.
+  // straight to that song's canonical page instead of a search results page.
+  //
+  // Deliberately NOT target="_blank": this app runs as a standalone
+  // home-screen PWA, and on iOS a target="_blank" tap from a standalone PWA
+  // opens an embedded in-app browser sheet (SFSafariViewController-style),
+  // not real Safari — Universal Links (the mechanism that hands off to the
+  // NetEase app) mostly don't fire from inside that embedded sheet, and
+  // some sites (NetEase included) serve a blank/restricted page to that
+  // embedded context on purpose. A plain same-window navigation gives iOS
+  // an actual top-level open, which is what Universal Link handoff needs.
   const link = document.createElement('a');
   link.className = 'song-open-link';
   link.href = song.netease_id
     ? `https://music.163.com/song?id=${encodeURIComponent(song.netease_id)}`
     : `https://music.163.com/#/search/m/?s=${encodeURIComponent(song.title + ' ' + song.artist)}&type=1`;
-  link.target = '_blank';
-  link.rel = 'noopener';
   link.textContent = song.netease_id ? '去网易云听 ›' : '去网易云搜这首 ›';
   songBodyEl.appendChild(link);
 }
