@@ -886,6 +886,17 @@ function renderSong(song) {
     reason.textContent = song.reason;
     songBodyEl.appendChild(reason);
   }
+
+  // NetEase's own web search page — no login/cookie/reverse-engineered API
+  // involved, just a link. Opens in her already-logged-in NetEase account
+  // (app or web) so she taps play herself instead of it auto-playing.
+  const link = document.createElement('a');
+  link.className = 'song-open-link';
+  link.href = `https://music.163.com/#/search/m/?s=${encodeURIComponent(song.title + ' ' + song.artist)}&type=1`;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = '去网易云听 ›';
+  songBodyEl.appendChild(link);
 }
 
 async function loadSong() {
