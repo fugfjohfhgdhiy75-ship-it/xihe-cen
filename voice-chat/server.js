@@ -1276,50 +1276,125 @@ async function synthesizeMiniMax(text) {
   return audioBuf;
 }
 
+// Try ElevenLabs first (it's the nicer voice when it works), but don't
+// let a runtime failure there (quota exceeded, outage, no model access)
+// leave the user with silence if MiniMax is configured and available —
+// fall back to it instead of just erroring out. Shared by the ▶ button's
+// /api/tts and the voice-call route.
+async function synthesizeSpeech(text) {
+  if (!ELEVENLABS_READY && !MINIMAX_READY) {
+    throw new Error('没有配置任何 TTS 服务(ElevenLabs 或 MiniMax 都没配)');
+  }
+  let elError = null;
+  if (ELEVENLABS_READY) {
+    try {
+      return await synthesizeElevenLabs(text);
+    } catch (err) {
+      elError = err;
+      if (!MINIMAX_READY) throw err;
+      console.error('ElevenLabs failed, falling back to MiniMax:', err.message);
+    }
+  }
+  if (!MINIMAX_READY) throw (elError || new Error('TTS 失败'));
+  return synthesizeMiniMax(text);
+}
+
 app.post('/api/tts', async (req, res) => {
   const { text } = req.body;
   if (!text || !text.trim()) {
     res.status(400).json({ error: 'text is required' });
     return;
   }
-
-  if (!ELEVENLABS_READY && !MINIMAX_READY) {
-    res.status(501).json({ error: '没有配置任何 TTS 服务(ElevenLabs 或 MiniMax 都没配)' });
-    return;
-  }
-
-  // Try ElevenLabs first (it's the nicer voice when it works), but don't
-  // let a runtime failure there (quota exceeded, outage, no model access)
-  // leave the user with silence if MiniMax is configured and available —
-  // fall back to it instead of just erroring out.
-  let elError = null;
-  if (ELEVENLABS_READY) {
-    try {
-      const audioBuf = await synthesizeElevenLabs(text);
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.send(audioBuf);
-      return;
-    } catch (err) {
-      elError = err;
-      if (!MINIMAX_READY) {
-        res.status(502).json({ error: err.message });
-        return;
-      }
-      console.error('ElevenLabs failed, falling back to MiniMax:', err.message);
-    }
-  }
-
-  if (!MINIMAX_READY) {
-    res.status(502).json({ error: elError ? elError.message : 'TTS 失败' });
-    return;
-  }
-
   try {
-    const audioBuf = await synthesizeMiniMax(text);
+    const audioBuf = await synthesizeSpeech(text);
     res.setHeader('Content-Type', 'audio/mpeg');
     res.send(audioBuf);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ElevenLabs speech-to-text (scribe). Only needs the API key, not a voice
+// id — so this can work even before a voice clone is set up.
+async function transcribeAudio(buffer, mimetype) {
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mimetype || 'audio/mp4' }), 'turn.m4a');
+  form.append('model_id', 'scribe_v1');
+  form.append('language_code', 'zh');
+  const r = await fetch(`${ELEVENLABS_API_HOST}/v1/speech-to-text`, {
+    method: 'POST',
+    headers: { 'xi-api-key': ELEVENLABS_API_KEY },
+    body: form,
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    console.error('ElevenLabs STT error:', r.status, JSON.stringify(json).slice(0, 300));
+    throw new Error('听不清(语音识别失败: ' + (json.detail && json.detail.message ? json.detail.message : r.status) + ')');
+  }
+  return (json.text || '').trim();
+}
+
+// One full voice-call turn: her recorded audio in → his spoken reply out.
+// Push-to-talk, not a realtime stream — records a clip, transcribes it,
+// gets a Claude reply against the same session history the text chat
+// uses (so calls and chat are one continuous conversation), synthesizes
+// the reply, and returns everything in one response. Both sides are
+// saved as normal messages, so the call transcript shows up in the chat
+// afterwards.
+app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const sessionId = req.body.sessionId;
+  if (!sessionId || !req.file) { res.status(400).json({ error: 'sessionId and audio are required' }); return; }
+  if (!ELEVENLABS_API_KEY) { res.status(501).json({ error: '语音通话需要配置 ELEVENLABS_API_KEY(语音识别用它)' }); return; }
+
+  try {
+    const userText = await transcribeAudio(req.file.buffer, req.file.mimetype);
+    if (!userText) { res.status(400).json({ error: '没听清,再说一遍?' }); return; }
+
+    await supabase.from('messages').insert({ session_id: sessionId, role: 'user', content: userText });
+    await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
+
+    const [{ data: history }, { data: memoryRows }, systemPrompt] = await Promise.all([
+      supabase.from('messages').select('role, content').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
+      supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
+      getSystemPrompt(),
+    ]);
+    const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
+    const systemParts = [systemPrompt];
+    if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
+    systemParts.push('现在是语音通话,她刚才那句话是说出来的,你的回复会被念出来给她听。所以:像打电话一样说话——短句、口语、直接,一次别说太长(两三句为宜);不要用括号动作描写、不要用列表或任何书面排版;语气跟着她这句话走。');
+
+    const claudeMessage = await createMessageWithRetry({
+      model: currentModel(),
+      max_tokens: 300,
+      system: systemParts.filter(Boolean).join('\n\n') || undefined,
+      messages: (history || []).map((m) => ({ role: m.role, content: m.content })),
+    });
+    let replyText = (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+    replyText = replyText.replace(/\[画[:：]\s*[^\]]+\]/g, '').trim();
+    if (!replyText) { res.status(502).json({ error: '他没说出话来,再试一次' }); return; }
+
+    await supabase.from('messages').insert({ session_id: sessionId, role: 'assistant', content: replyText });
+
+    let audioBase64 = null;
+    try {
+      const audioBuf = await synthesizeSpeech(replyText);
+      audioBase64 = audioBuf.toString('base64');
+    } catch (err) {
+      // Voice is the point of a call, but if TTS fails the turn still
+      // happened — return the text so the client can show it instead of
+      // eating the whole exchange.
+      console.error('call-turn TTS failed, returning text only:', err.message);
+    }
+
+    res.json({ userText, replyText, audioBase64 });
+
+    compressIfNeeded(sessionId)
+      .then(() => consolidateMemoriesIfNeeded(sessionId))
+      .catch((err) => console.error('background memory maintenance error (call):', err));
+  } catch (err) {
+    console.error('POST /api/call-turn error:', err);
+    res.status(500).json({ error: err.message || '通话这一轮失败了' });
   }
 });
 

@@ -1447,3 +1447,137 @@ async function loadDiary() {
     diaryListEl.innerHTML = `<div class="diary-loading">加载失败: ${err.message}</div>`;
   }
 }
+
+// ---- Voice call (push-to-talk) ----
+// Not a realtime stream: tap to record, tap again to send — the clip goes
+// to /api/call-turn (STT → Claude → TTS) and his reply plays back. Uses
+// our own MediaRecorder + getUserMedia, no IME involved, so third-party
+// keyboard voice panels (and their black-screen crashes) never enter the
+// picture. Turns are saved as normal messages, so hanging up drops the
+// whole call transcript into the chat.
+const callBtn = document.getElementById('callBtn');
+const callScreen = document.getElementById('callScreen');
+const callStatusEl = document.getElementById('callStatus');
+const callTranscriptEl = document.getElementById('callTranscript');
+const callTalkBtn = document.getElementById('callTalkBtn');
+const callEndBtn = document.getElementById('callEndBtn');
+
+let callStream = null;
+let callRecorder = null;
+let callChunks = [];
+let callBusy = false;
+let callDiscard = false;
+let callHadTurns = false;
+
+function callMimeType() {
+  if (!window.MediaRecorder) return '';
+  return ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+}
+
+function addCallLine(who, text) {
+  const line = document.createElement('div');
+  line.className = 'call-line ' + who;
+  line.textContent = text;
+  callTranscriptEl.appendChild(line);
+  callTranscriptEl.scrollTop = callTranscriptEl.scrollHeight;
+}
+
+callBtn.addEventListener('click', async () => {
+  if (!currentSessionId) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    statusText.textContent = '这个浏览器不支持录音,没法通话';
+    return;
+  }
+  try {
+    callStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    statusText.textContent = '需要麦克风权限才能通话(去系统设置里允许一下)';
+    return;
+  }
+  callHadTurns = false;
+  callTranscriptEl.innerHTML = '';
+  callStatusEl.textContent = '按下面的按钮说话';
+  callScreen.classList.remove('hidden');
+});
+
+callTalkBtn.addEventListener('click', () => {
+  if (callBusy || !callStream) return;
+
+  if (callRecorder && callRecorder.state === 'recording') {
+    // Must run synchronously inside this tap — the reply audio plays after
+    // an await chain, outside the gesture window, unless unlocked now.
+    unlockAudioPlayback();
+    callRecorder.stop();
+    return;
+  }
+
+  callChunks = [];
+  callDiscard = false;
+  const mime = callMimeType();
+  try {
+    callRecorder = mime ? new MediaRecorder(callStream, { mimeType: mime }) : new MediaRecorder(callStream);
+  } catch (err) {
+    callStatusEl.textContent = '录音启动失败: ' + err.message;
+    return;
+  }
+  callRecorder.ondataavailable = (e) => { if (e.data && e.data.size) callChunks.push(e.data); };
+  callRecorder.onstop = () => {
+    callTalkBtn.classList.remove('recording');
+    if (callDiscard) return;
+    const blob = new Blob(callChunks, { type: callRecorder.mimeType || 'audio/mp4' });
+    if (blob.size < 1000) { callStatusEl.textContent = '太短了,没录到什么,再说一次'; return; }
+    sendCallTurn(blob);
+  };
+  callRecorder.start();
+  callTalkBtn.classList.add('recording');
+  callStatusEl.textContent = '在听你说...说完再按一下发出去';
+});
+
+async function sendCallTurn(blob) {
+  callBusy = true;
+  callTalkBtn.disabled = true;
+  callStatusEl.textContent = '他在听...';
+  try {
+    const form = new FormData();
+    form.append('sessionId', currentSessionId);
+    form.append('audio', blob, 'turn.m4a');
+    const res = await fetch('/api/call-turn', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '这一轮没成功');
+
+    callHadTurns = true;
+    addCallLine('me', data.userText);
+    addCallLine('him', data.replyText);
+
+    if (data.audioBase64) {
+      ttsPlayer.src = 'data:audio/mpeg;base64,' + data.audioBase64;
+      ttsPlayer.playbackRate = 1;
+      ttsPlayer.currentTime = 0;
+      callStatusEl.textContent = '他在说...';
+      ttsPlayer.addEventListener('ended', () => {
+        callStatusEl.textContent = '按下面的按钮说话';
+      }, { once: true });
+      await ttsPlayer.play().catch(() => {
+        callStatusEl.textContent = '语音放不出来,他说的在上面';
+      });
+    } else {
+      callStatusEl.textContent = '语音合成没成功,他说的在上面';
+    }
+  } catch (err) {
+    callStatusEl.textContent = err.message;
+  } finally {
+    callBusy = false;
+    callTalkBtn.disabled = false;
+  }
+}
+
+callEndBtn.addEventListener('click', () => {
+  callDiscard = true;
+  if (callRecorder && callRecorder.state === 'recording') callRecorder.stop();
+  if (callStream) { callStream.getTracks().forEach((t) => t.stop()); callStream = null; }
+  ttsPlayer.pause();
+  callScreen.classList.add('hidden');
+  // The call's turns were saved server-side as normal messages — reload so
+  // they show up in the chat transcript right away.
+  if (callHadTurns && currentSessionId) selectSession(currentSessionId);
+});
