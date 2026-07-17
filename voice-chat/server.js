@@ -345,7 +345,33 @@ async function pickDailySong(rejectedTitles) {
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
   if (!parsed.title || !parsed.artist) throw new Error('模型没有返回有效的歌曲信息');
+
+  parsed.neteaseId = await lookupNeteaseSongId(parsed.title, parsed.artist);
   return parsed;
+}
+
+// Best-effort match against NetEase's own public search page — read-only,
+// no login/cookie, just resolves "title + artist" to a song id so the
+// Home page link can jump straight to that song (music.163.com/song?id=)
+// instead of a search results page. This is NetEase's legacy web search
+// endpoint (no official docs, but doesn't require auth or request
+// signing like their newer endpoints do); if it ever breaks or the
+// request fails for any reason, this just returns null and the frontend
+// falls back to a plain search link — never blocks the recommendation.
+async function lookupNeteaseSongId(title, artist) {
+  try {
+    const q = encodeURIComponent(`${title} ${artist}`);
+    const res = await fetch(`https://music.163.com/api/search/get/web?s=${q}&type=1&offset=0&limit=1`, {
+      headers: { Referer: 'https://music.163.com/' },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const song = json && json.result && json.result.songs && json.result.songs[0];
+    return song ? String(song.id) : null;
+  } catch (err) {
+    console.error('lookupNeteaseSongId error:', err.message);
+    return null;
+  }
 }
 
 app.get('/api/sessions', async (req, res) => {
@@ -537,7 +563,7 @@ app.get('/api/daily-song', async (req, res) => {
     const song = await pickDailySong([]);
     const { data: inserted, error } = await supabase
       .from('daily_songs')
-      .insert({ song_date: dateStr, title: song.title, artist: song.artist, reason: song.reason || '' })
+      .insert({ song_date: dateStr, title: song.title, artist: song.artist, reason: song.reason || '', netease_id: song.neteaseId })
       .select()
       .single();
     if (error) {
@@ -571,6 +597,7 @@ app.post('/api/daily-song/reroll', async (req, res) => {
       title: song.title,
       artist: song.artist,
       reason: song.reason || '',
+      netease_id: song.neteaseId,
       rejected,
     };
     const { data, error } = await supabase.from('daily_songs').upsert(update, { onConflict: 'song_date' }).select().single();

@@ -80,6 +80,13 @@ create table if not exists daily_songs (
   created_at timestamptz not null default now()
 );
 
+-- Looked up best-effort against NetEase's own public search (see
+-- lookupNeteaseSongId in server.js) so the "去网易云听" link on the Home
+-- page can jump straight to that exact song in the app instead of landing
+-- on a search results page. Null when no confident match was found — the
+-- frontend falls back to a plain search link in that case.
+alter table daily_songs add column if not exists netease_id text;
+
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
 create index if not exists diary_entries_date_idx on diary_entries (entry_date desc);

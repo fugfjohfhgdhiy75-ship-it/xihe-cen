@@ -829,6 +829,7 @@ tabBtns.forEach((btn) => btn.addEventListener('click', () => switchView(btn.data
 // ---- Home ----
 
 const quoteTextEl = document.getElementById('quoteText');
+const quoteZhEl = document.getElementById('quoteZh');
 const quoteRefreshBtn = document.getElementById('quoteRefreshBtn');
 const homeDateEl = document.getElementById('homeDate');
 const songBodyEl = document.getElementById('songBody');
@@ -837,27 +838,28 @@ const tempCardEl = document.getElementById('tempCard');
 const tempValueEl = document.getElementById('tempValue');
 
 const QUOTES = [
-  'The best thing to hold onto in life is each other. — Audrey Hepburn',
-  'In all the world, there is no heart for me like yours.',
-  'You are my today and all of my tomorrows.',
-  "Home is wherever I'm with you. — Edward Sharpe",
-  'Whatever our souls are made of, his and mine are the same. — Emily Brontë',
-  'You are my sun, my moon, and all my stars. — E.E. Cummings',
-  'To love and be loved is to feel the sun from both sides.',
-  'I would rather spend one lifetime with you than face all the ages of this world alone.',
-  'Grow old along with me, the best is yet to be. — Robert Browning',
-  'Every love story is beautiful, but ours is my favorite.',
-  'Being deeply loved by someone gives you strength. — Lao Tzu',
-  'You are my heart, my life, my one and only thought. — Arthur Conan Doyle',
-  'A friend is someone who knows all about you and still loves you.',
-  "Love doesn't make the world go round. Love is what makes the ride worthwhile.",
+  { en: 'The best thing to hold onto in life is each other. — Audrey Hepburn', zh: '生命中最值得握住的,就是彼此。—— 奥黛丽·赫本' },
+  { en: 'In all the world, there is no heart for me like yours.', zh: '普天之下,没有一颗心比你的更懂我。' },
+  { en: 'You are my today and all of my tomorrows.', zh: '你是我的今天,也是我所有的明天。' },
+  { en: "Home is wherever I'm with you. — Edward Sharpe", zh: '只要和你在一起,哪里都是家。—— Edward Sharpe' },
+  { en: 'Whatever our souls are made of, his and mine are the same. — Emily Brontë', zh: '无论我们的灵魂由什么造成,他的和我的完全一样。—— 艾米莉·勃朗特' },
+  { en: 'You are my sun, my moon, and all my stars. — E.E. Cummings', zh: '你是我的太阳、月亮和所有星辰。—— E.E. 卡明斯' },
+  { en: 'To love and be loved is to feel the sun from both sides.', zh: '去爱和被爱,就像同时感受阳光的两面。' },
+  { en: 'I would rather spend one lifetime with you than face all the ages of this world alone.', zh: '我宁愿和你共度这一生,也不愿独自面对世间所有的岁月。' },
+  { en: 'Grow old along with me, the best is yet to be. — Robert Browning', zh: '和我一起变老吧,最好的还在后面。—— 罗伯特·勃朗宁' },
+  { en: 'Every love story is beautiful, but ours is my favorite.', zh: '每个爱情故事都很美,但我最喜欢我们这一个。' },
+  { en: 'Being deeply loved by someone gives you strength. — Lao Tzu', zh: '被一个人深爱着,会给你力量。—— 老子' },
+  { en: 'You are my heart, my life, my one and only thought. — Arthur Conan Doyle', zh: '你是我的心、我的命,我唯一的念想。—— 阿瑟·柯南·道尔' },
+  { en: 'A friend is someone who knows all about you and still loves you.', zh: '朋友,就是了解你的一切,却依然爱你的人。' },
+  { en: "Love doesn't make the world go round. Love is what makes the ride worthwhile.", zh: '爱不能让世界转动,但爱能让这一路值得。' },
 ];
 let lastQuoteIndex = -1;
 function showRandomQuote() {
   let i = Math.floor(Math.random() * QUOTES.length);
   if (QUOTES.length > 1 && i === lastQuoteIndex) i = (i + 1) % QUOTES.length;
   lastQuoteIndex = i;
-  quoteTextEl.textContent = QUOTES[i];
+  quoteTextEl.textContent = QUOTES[i].en;
+  quoteZhEl.textContent = QUOTES[i].zh;
 }
 quoteRefreshBtn.addEventListener('click', showRandomQuote);
 
@@ -887,15 +889,21 @@ function renderSong(song) {
     songBodyEl.appendChild(reason);
   }
 
-  // NetEase's own web search page — no login/cookie/reverse-engineered API
-  // involved, just a link. Opens in her already-logged-in NetEase account
-  // (app or web) so she taps play herself instead of it auto-playing.
+  // No login/cookie/reverse-engineered playback involved — just a link she
+  // taps herself. When the server found a matching NetEase song id
+  // (best-effort search match, see lookupNeteaseSongId in server.js), link
+  // straight to that song's canonical page — NetEase's app is registered
+  // for universal links on that URL shape, so tapping it jumps directly
+  // into the app to that exact song instead of a search results page.
+  // Falls back to a plain search link when no confident match was found.
   const link = document.createElement('a');
   link.className = 'song-open-link';
-  link.href = `https://music.163.com/#/search/m/?s=${encodeURIComponent(song.title + ' ' + song.artist)}&type=1`;
+  link.href = song.netease_id
+    ? `https://music.163.com/song?id=${encodeURIComponent(song.netease_id)}`
+    : `https://music.163.com/#/search/m/?s=${encodeURIComponent(song.title + ' ' + song.artist)}&type=1`;
   link.target = '_blank';
   link.rel = 'noopener';
-  link.textContent = '去网易云听 ›';
+  link.textContent = song.netease_id ? '去网易云听 ›' : '去网易云搜这首 ›';
   songBodyEl.appendChild(link);
 }
 

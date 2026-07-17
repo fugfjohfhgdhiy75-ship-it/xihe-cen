@@ -688,6 +688,13 @@ h1 {
   color: var(--text);
 }
 
+.quote-text-zh {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
 .quote-refresh {
   position: absolute;
   top: 10px;
