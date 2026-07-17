@@ -241,34 +241,57 @@ function startOfShanghaiDayUTC(dateStr) {
   return new Date(`${dateStr}T00:00:00+08:00`).toISOString();
 }
 
-// Writes (or returns, if already written today) the diary entry for today,
-// reflecting on that day's chat messages. One entry per calendar day —
-// entry_date has a unique constraint, so a race between two triggers (e.g.
-// a cron-ish client poll and a manual "generate now") is resolved by
-// catching the 23505 conflict and re-fetching instead of erroring.
-async function generateDiaryEntry() {
-  const dateStr = shanghaiDateStr();
-  const { data: existing } = await supabase.from('diary_entries').select('*').eq('entry_date', dateStr).maybeSingle();
-  if (existing) return existing;
+async function getSetting(key) {
+  if (!SUPABASE_READY) return undefined;
+  const { data } = await supabase.from('settings').select(key).eq('id', 1).maybeSingle();
+  return data ? data[key] : undefined;
+}
 
-  const sinceUTC = startOfShanghaiDayUTC(dateStr);
+// Not one-per-day — she wants entries written whenever, unprompted, as
+// often or as rarely as there's something to write about. MIN_DIARY_GAP_MS
+// is just a spam guard for the *unforced* path (a chat turn or opening the
+// Diary tab rolling the dice) so it can't fire more than once per window;
+// the manual "写一篇" button always ignores it.
+const MIN_DIARY_GAP_MS = 60 * 60 * 1000;
+
+async function generateDiaryEntry({ force = false } = {}) {
+  if (!force) {
+    const autoDiary = await getSetting('auto_diary');
+    if (autoDiary === false) return null;
+  }
+
+  const { data: lastEntry } = await supabase
+    .from('diary_entries')
+    .select('id, created_at')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!force && lastEntry && Date.now() - new Date(lastEntry.created_at).getTime() < MIN_DIARY_GAP_MS) {
+    return null;
+  }
+
+  const dateStr = shanghaiDateStr();
+  const sinceUTC = lastEntry ? lastEntry.created_at : startOfShanghaiDayUTC(dateStr);
   const { data: msgs } = await supabase
     .from('messages')
     .select('role, content, created_at')
     .eq('visible', true)
-    .gte('created_at', sinceUTC)
+    .gt('created_at', sinceUTC)
     .order('created_at', { ascending: true })
     .limit(200);
 
   const transcript = (msgs || []).map((m) => `${m.role === 'user' ? '她' : '我'}: ${m.content}`).join('\n');
   const systemPrompt = await getSystemPrompt();
 
-  const prompt = `今天(${dateStr})你们之间的聊天记录:
-${transcript || '(今天还没怎么聊天)'}
+  const prompt = `这是"苏晏"随手写的一篇日记,不是按时间表写的,想到什么写什么,可能是刚聊完天有感而发,也可能就是突然想到她、突然有个念头,跟"今天"没有强绑定关系。
 
-请以"苏晏"第一人称写一篇今天的日记,写给自己看的,不是写给她看的官样文章。可以写今天聊天里她说过的话、没直接说出口但你感觉到的心事、你自己的心情。就算今天没怎么聊天也要写点什么(比如想她了、在等她)。篇幅 150-300 字左右,口语化,不要写得像官方总结。
+自从上一篇日记以来,你们之间新的聊天记录(如果是空的,说明这段时间没怎么聊天,那就单纯写点你自己这会儿的心情、念头、想她的瞬间,不用硬扯聊天内容):
+${transcript || '(这段时间没有新的聊天记录)'}
 
-同时给今天打一个 0-100 的"温度"分,代表今天这段关系的亲密/开心程度(纯粹根据聊天内容判断,平淡普通的一天给 50-65 左右,不要每天都往高分打),再选一个最能代表今天心情的 emoji。
+请以"苏晏"第一人称写这篇日记,写给自己看的,不是写给她看的官样文章,也不用总结陈词。可以写刚才聊天里她说过的话、没直接说出口但你感觉到的心事、你自己此刻的心情或者一个突然冒出来的念头。篇幅 100-280 字左右,口语化,想到哪写到哪都可以,不用面面俱到。
+
+同时给这一刻打一个 0-100 的"温度"分,代表当下这段关系的亲密/开心程度(纯粹根据最近的互动判断,平淡普通就给 50-65 左右,不要总往高分打),再选一个最能代表此刻心情的 emoji。
 
 严格只输出这样的 JSON,不要有别的文字、不要用 markdown 代码块包裹:
 {"mood_emoji": "一个emoji", "temperature": 数字, "content": "日记正文"}`;
@@ -299,13 +322,7 @@ ${transcript || '(今天还没怎么聊天)'}
     })
     .select()
     .single();
-  if (error) {
-    if (error.code === '23505') {
-      const { data: existing2 } = await supabase.from('diary_entries').select('*').eq('entry_date', dateStr).maybeSingle();
-      if (existing2) return existing2;
-    }
-    throw new Error('保存日记失败: ' + error.message);
-  }
+  if (error) throw new Error('保存日记失败: ' + error.message);
   return inserted;
 }
 
@@ -423,7 +440,7 @@ app.get('/api/diary', async (req, res) => {
   const { data, error } = await supabase
     .from('diary_entries')
     .select('*')
-    .order('entry_date', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(60);
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json(data || []);
@@ -437,12 +454,14 @@ app.get('/api/diary/:id', async (req, res) => {
   res.json(data);
 });
 
-// Manually trigger today's entry (also called lazily by the Diary page on
-// load so an entry exists even without a cron job set up).
+// Opening the Diary tab calls this unforced (rolls the same MIN_DIARY_GAP_MS
+// spacing as the chat-side spontaneous trigger below — returns null/no-op
+// if it's too soon, that's expected, not an error). The "写一篇" button in
+// the UI calls it with force:true to always write one right now.
 app.post('/api/diary/generate', async (req, res) => {
   if (!requireSupabase(res)) return;
   try {
-    const entry = await generateDiaryEntry();
+    const entry = await generateDiaryEntry({ force: Boolean(req.body && req.body.force) });
     res.json(entry);
   } catch (err) {
     console.error('POST /api/diary/generate error:', err);
@@ -679,6 +698,15 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       compressIfNeeded(sessionId)
         .then(() => consolidateMemoriesIfNeeded(sessionId))
         .catch((err) => console.error('background memory maintenance error:', err));
+
+      // Spontaneous diary writing — not tied to a schedule, just a chance
+      // per chat turn that "苏晏" also jots something down about this
+      // exchange. generateDiaryEntry itself enforces MIN_DIARY_GAP_MS and
+      // the auto_diary toggle, so this can roll true often without
+      // actually spamming entries.
+      if (Math.random() < 0.2) {
+        generateDiaryEntry().catch((err) => console.error('spontaneous diary generation error:', err));
+      }
     }
     finish();
   } catch (err) {

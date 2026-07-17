@@ -47,14 +47,16 @@ alter table settings add column if not exists sleep_state_enabled boolean not nu
 alter table settings add column if not exists daily_song_enabled boolean not null default true;
 alter table settings add column if not exists together_since date;
 
--- One row per calendar day: the diary entry "苏晏" writes reflecting on
--- that day's conversations, plus a mood emoji and a 0-100 relationship
--- "temperature" for the day. user_reply/ai_reply thread onto the same row
--- since each day only ever has one entry (keeps the reply flow simple —
--- no separate comments table needed for a single reply-and-response).
+-- Diary entries "苏晏" writes unprompted, reflecting on recent conversation
+-- (or just whatever's on her mind if nothing's been said in a while), plus
+-- a mood emoji and a 0-100 relationship "temperature". Not one-per-day —
+-- entry_date is just for display grouping, created_at is the real
+-- ordering/spacing signal (see generateDiaryEntry in server.js for the
+-- pacing rule). user_reply/ai_reply thread onto the same row since each
+-- entry only ever gets one reply-and-response.
 create table if not exists diary_entries (
   id bigint generated always as identity primary key,
-  entry_date date not null unique,
+  entry_date date not null,
   mood_emoji text,
   temperature int,
   content text not null,
@@ -81,4 +83,5 @@ create table if not exists daily_songs (
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
 create index if not exists diary_entries_date_idx on diary_entries (entry_date desc);
+create index if not exists diary_entries_created_idx on diary_entries (created_at desc);
 create index if not exists daily_songs_date_idx on daily_songs (song_date desc);

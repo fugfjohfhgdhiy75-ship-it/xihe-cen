@@ -943,6 +943,31 @@ async function loadHome() {
 // ---- Diary ----
 
 const diaryListEl = document.getElementById('diaryList');
+const diaryWriteBtn = document.getElementById('diaryWriteBtn');
+
+function formatDiaryTimestamp(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+diaryWriteBtn.addEventListener('click', async () => {
+  diaryWriteBtn.disabled = true;
+  try {
+    const res = await fetch('/api/diary/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '写日记失败');
+    await loadDiary();
+  } catch (err) {
+    statusText.textContent = '写日记失败: ' + err.message;
+  } finally {
+    diaryWriteBtn.disabled = false;
+  }
+});
 
 function renderDiaryEntries(entries) {
   diaryListEl.innerHTML = '';
@@ -961,7 +986,7 @@ function renderDiaryEntry(entry) {
   head.className = 'diary-entry-head';
   const date = document.createElement('span');
   date.className = 'diary-date';
-  date.textContent = entry.entry_date;
+  date.textContent = formatDiaryTimestamp(entry.created_at || entry.entry_date);
   head.appendChild(date);
 
   const mood = document.createElement('span');
