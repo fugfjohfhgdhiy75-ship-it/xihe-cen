@@ -103,6 +103,21 @@ ElevenLabs 是直连官方接口,不走中转站,所以不会有中转站那种�
 - 这套标签本质是"表演提示",不是每次都 100% 稳定生效,同一句话不同版本效果可能不一样,属于正常现象。
 - 参数改完存到 Render 的环境变量里重新部署就行,不用改代码。
 
+## 接入 Gemini 画图("让他画一张")
+
+Claude 本身不会画图,所以这是单独接的一个功能,跟正常聊天是分开的两条路。
+
+1. 去 [aistudio.google.com](https://aistudio.google.com) 用 Google 账号登录,免费拿一个 API key。
+2. 填进 `.env` 的 `GEMINI_API_KEY`。
+3. 重启/重新部署,聊天页输入框左边会多出一个✦按钮(没配这个 key 就不会出现这个按钮,不影响其他功能)。
+
+**用法**:先在输入框里打字描述想让他画什么,不点发送,点旁边那个✦按钮——它不会走 Claude,是直接把输入框里的文字当画图描述发给 Gemini,画出来的图会作为一条新消息插进对话里,跟正常发图片一样能看历史记录。
+
+**注意几点**:
+- Gemini 自己的内容审核比文字聊天严格很多,亲密/暧昧一点的描述大概率会被拒绝生成,能稳定画出来的基本是插画、风景、表情包这类"干净"的内容,别对着尺度抱太大期望。
+- 拒绝生成的时候会提示"这次没画出来",换个描述再试,不是网站坏了。
+- 这是要花钱的 API,虽然免费额度通常够个人偶尔用,用多了还是会产生费用,自己注意别当免费图库使。
+
 ## 接入 MiniMax speech-02 克隆音色
 
 1. 去 [platform.minimax.io](https://platform.minimax.io)(国际版)或 [platform.minimaxi.com](https://platform.minimaxi.com)(国内版)注册,拿到 `API Key` 和 `Group ID`,填进 `.env` 的 `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID`。国内版记得把 `MINIMAX_API_HOST` 改成 `https://api.minimaxi.com`。

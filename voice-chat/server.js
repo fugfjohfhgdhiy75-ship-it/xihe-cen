@@ -120,6 +120,14 @@ const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE || 0.88);
 const ELEVENLABS_SPEED = Number(process.env.ELEVENLABS_SPEED || 1.08);
 const ELEVENLABS_READY = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
 
+// Claude itself can't generate images, so "让他画一张" is a separate,
+// manually-triggered call to Gemini's image model. Direct official API,
+// no relay involved.
+const GEMINI_API_HOST = process.env.GEMINI_API_HOST || 'https://generativelanguage.googleapis.com';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
+const GEMINI_READY = Boolean(GEMINI_API_KEY);
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const SUPABASE_READY = Boolean(SUPABASE_URL && SUPABASE_KEY);
@@ -772,6 +780,65 @@ app.post('/api/daily-song/reroll', async (req, res) => {
   }
 });
 
+// Manually triggered ("让他画一张") — Claude can't generate images, so
+// this is a separate call to Gemini's image model, not part of the normal
+// chat turn. The result gets saved as a normal assistant message with an
+// image attached, reusing the same messages.image_url column real image
+// uploads use, so it shows up in history/reload exactly like any other
+// picture.
+app.post('/api/generate-image', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  if (!GEMINI_READY) { res.status(501).json({ error: 'Gemini 没配置(缺 GEMINI_API_KEY)' }); return; }
+  const sessionId = req.body.sessionId;
+  const prompt = (req.body.prompt || '').trim();
+  if (!sessionId || !prompt) { res.status(400).json({ error: 'sessionId and prompt are required' }); return; }
+
+  try {
+    const geminiRes = await fetch(
+      `${GEMINI_API_HOST}/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      }
+    );
+    const geminiJson = await geminiRes.json();
+    if (!geminiRes.ok) {
+      throw new Error((geminiJson.error && geminiJson.error.message) || 'Gemini 请求失败');
+    }
+    const parts = (geminiJson.candidates && geminiJson.candidates[0] && geminiJson.candidates[0].content && geminiJson.candidates[0].content.parts) || [];
+    const imagePart = parts.find((p) => p.inlineData && p.inlineData.data);
+    if (!imagePart) {
+      // Most likely cause: Gemini's safety filters declined the prompt
+      // rather than a hard error — surface that distinctly from a plain
+      // network/API failure so it doesn't read as "broken."
+      throw new Error('这次没画出来(可能是内容被拦下了),换个描述再试试');
+    }
+
+    const buffer = Buffer.from(imagePart.inlineData.data, 'base64');
+    const ext = (imagePart.inlineData.mimeType || 'image/png').split('/')[1] || 'png';
+    const path = `${sessionId}/gemini-${Date.now()}.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from(IMAGE_BUCKET)
+      .upload(path, buffer, { contentType: imagePart.inlineData.mimeType || 'image/png' });
+    if (uploadErr) throw new Error('图片保存失败: ' + uploadErr.message);
+    const imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+
+    const { data: inserted, error: insertErr } = await supabase
+      .from('messages')
+      .insert({ session_id: sessionId, role: 'assistant', content: '', image_url: imageUrl, image_urls: [imageUrl] })
+      .select()
+      .single();
+    if (insertErr) throw new Error('保存消息失败: ' + insertErr.message);
+
+    await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
+    res.json(inserted);
+  } catch (err) {
+    console.error('POST /api/generate-image error:', err);
+    res.status(500).json({ error: err.message || '画图失败' });
+  }
+});
+
 app.post('/api/chat', upload.array('images', 6), async (req, res) => {
   const sessionId = req.body.sessionId;
   const message = req.body.message || '';
@@ -946,7 +1013,7 @@ app.get('/api/debug-chat', async (req, res) => {
 
 app.get('/api/config', (req, res) => {
   const ttsProvider = ELEVENLABS_READY ? 'elevenlabs' : (MINIMAX_READY ? 'minimax' : 'browser');
-  res.json({ ttsProvider, supabaseReady: SUPABASE_READY });
+  res.json({ ttsProvider, supabaseReady: SUPABASE_READY, geminiReady: GEMINI_READY });
 });
 
 app.post('/api/extract-text', upload.single('file'), async (req, res) => {

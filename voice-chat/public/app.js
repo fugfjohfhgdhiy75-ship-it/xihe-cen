@@ -91,6 +91,7 @@ const sendBtn = document.getElementById('sendBtn');
 const imageBtn = document.getElementById('imageBtn');
 const imageInput = document.getElementById('imageInput');
 const imagePreview = document.getElementById('imagePreview');
+const genImageBtn = document.getElementById('genImageBtn');
 
 const MAX_IMAGES = 6;
 
@@ -167,6 +168,7 @@ async function init() {
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({}));
   ttsProvider = cfg.ttsProvider || 'browser';
   supabaseReady = Boolean(cfg.supabaseReady);
+  if (cfg.geminiReady) genImageBtn.classList.remove('hidden');
 
   loadHome();
   showRandomMoodStatus();
@@ -944,6 +946,40 @@ function clearImageSelection() {
 }
 
 imageBtn.addEventListener('click', () => imageInput.click());
+
+// "让他画一张" — uses whatever's currently typed as the image prompt,
+// separate from the normal send flow (Claude can't generate images, so
+// this is a distinct call to Gemini). The result comes back as a normal
+// assistant message with an image attached.
+genImageBtn.addEventListener('click', async () => {
+  const prompt = textInput.value.trim();
+  if (!prompt) { statusText.textContent = '先在输入框写好想让他画什么'; return; }
+  if (!currentSessionId) return;
+
+  textInput.value = '';
+  genImageBtn.disabled = true;
+  statusText.textContent = '正在画...';
+  const placeholder = appendBubble('assistant', '（正在画...）');
+
+  try {
+    const res = await fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: currentSessionId, prompt }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '画图失败');
+    placeholder.el.remove();
+    appendBubble('assistant', '', [data.image_url], data.id);
+    statusText.textContent = '';
+  } catch (err) {
+    placeholder.el.remove();
+    appendBubble('assistant', `(画图失败: ${err.message})`);
+    statusText.textContent = '';
+  } finally {
+    genImageBtn.disabled = false;
+  }
+});
 
 imageInput.addEventListener('change', () => {
   const files = Array.from(imageInput.files || []);
