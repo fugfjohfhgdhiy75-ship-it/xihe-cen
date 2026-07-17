@@ -1006,6 +1006,48 @@ h1 {
   font-size: 15px;
 }
 
+.now-card {
+  gap: 6px;
+}
+
+.now-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.now-emoji {
+  font-size: 20px;
+}
+
+.now-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.now-activity {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.now-thought {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding-left: 28px;
+}
+
+.song-player {
+  width: 100%;
+  height: 90px;
+  border: none;
+  border-radius: 12px;
+  margin-top: 8px;
+  background: rgba(255,255,255,0.4);
+}
+
 .song-card-head {
   display: flex;
   align-items: center;

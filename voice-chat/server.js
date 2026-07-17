@@ -321,12 +321,20 @@ async function getSetting(key) {
   return data ? data[key] : undefined;
 }
 
-// Not one-per-day — she wants entries written whenever, unprompted, as
-// often or as rarely as there's something to write about. MIN_DIARY_GAP_MS
-// is just a spam guard for the *unforced* path (a chat turn or opening the
-// Diary tab rolling the dice) so it can't fire more than once per window;
-// the manual "写一篇" button always ignores it.
-const MIN_DIARY_GAP_MS = 60 * 60 * 1000;
+// Not one-per-day — entries come whenever there's something to write
+// about, but the *pace* follows mood: a plain day settles at 1-2 entries
+// (long gap, low cap), while an emotionally extreme stretch (last entry's
+// temperature very high or very low) is allowed to run hotter (short gap,
+// higher cap) — people journal more when something's actually happening.
+// Mood is read from the latest entry's own temperature score, so this
+// costs zero extra API calls. The manual "写一篇" button ignores all of it.
+const DIARY_PACE = {
+  normal: { gapMs: 5 * 60 * 60 * 1000, maxPerDay: 2 },
+  extreme: { gapMs: 90 * 60 * 1000, maxPerDay: 5 },
+};
+function isExtremeMood(temperature) {
+  return Number.isFinite(temperature) && (temperature >= 85 || temperature <= 35);
+}
 
 async function generateDiaryEntry({ force = false } = {}) {
   if (!force) {
@@ -336,16 +344,22 @@ async function generateDiaryEntry({ force = false } = {}) {
 
   const { data: lastEntry } = await supabase
     .from('diary_entries')
-    .select('id, created_at')
+    .select('id, created_at, temperature')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!force && lastEntry && Date.now() - new Date(lastEntry.created_at).getTime() < MIN_DIARY_GAP_MS) {
-    return null;
-  }
-
   const dateStr = shanghaiDateStr();
+
+  if (!force && lastEntry) {
+    const pace = isExtremeMood(lastEntry.temperature) ? DIARY_PACE.extreme : DIARY_PACE.normal;
+    if (Date.now() - new Date(lastEntry.created_at).getTime() < pace.gapMs) return null;
+    const { count } = await supabase
+      .from('diary_entries')
+      .select('id', { count: 'exact', head: true })
+      .eq('entry_date', dateStr);
+    if ((count || 0) >= pace.maxPerDay) return null;
+  }
   const sinceUTC = lastEntry ? lastEntry.created_at : startOfShanghaiDayUTC(dateStr);
   const { data: msgs } = await supabase
     .from('messages')
@@ -704,9 +718,9 @@ app.get('/api/diary/:id', async (req, res) => {
   res.json(data);
 });
 
-// Opening the Diary tab calls this unforced (rolls the same MIN_DIARY_GAP_MS
-// spacing as the chat-side spontaneous trigger below — returns null/no-op
-// if it's too soon, that's expected, not an error). The "写一篇" button in
+// Opening the Diary tab calls this unforced (subject to the same DIARY_PACE
+// mood-based spacing/caps as the chat-side spontaneous trigger — returns
+// null/no-op if it's too soon or today's cap is reached; expected, not an error). The "写一篇" button in
 // the UI calls it with force:true to always write one right now.
 app.post('/api/diary/generate', async (req, res) => {
   if (!requireSupabase(res)) return;
@@ -1042,7 +1056,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
 
       // Spontaneous diary writing — not tied to a schedule, just a chance
       // per chat turn that "苏晏" also jots something down about this
-      // exchange. generateDiaryEntry itself enforces MIN_DIARY_GAP_MS and
+      // exchange. generateDiaryEntry itself enforces the DIARY_PACE gaps/caps and
       // the auto_diary toggle, so this can roll true often without
       // actually spamming entries.
       if (Math.random() < 0.2) {

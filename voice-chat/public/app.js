@@ -27,7 +27,14 @@ const appEl = document.querySelector('.app');
 const composerDock = document.getElementById('composerDock');
 function syncAppHeight() {
   if (!appEl || !window.visualViewport) return;
-  appEl.style.height = window.visualViewport.height + 'px';
+  const h = window.visualViewport.height;
+  // Some third-party IME voice-input overlays (豆包输入法 etc.) briefly
+  // report absurd viewport heights while their own panel takes over the
+  // screen; applying one collapses .app to (near) nothing, which reads as
+  // the whole page going black. Ignore implausible values — the next sane
+  // resize event restores layout.
+  if (!h || h < 150) return;
+  appEl.style.height = h + 'px';
   // iOS sometimes scrolls the (non-scrolling) page to bring the focused
   // input into view on its own; snap it back so our own layout is the only
   // thing driving position.
@@ -159,6 +166,53 @@ function showRandomMoodStatus() {
   moodStatusEl.style.animation = '';
 }
 setInterval(showRandomMoodStatus, 20 * 60 * 1000);
+
+// ---- Home "他现在在干什么" status card ----
+// Pure local state machine, zero API cost: activity picked by time-of-day
+// bucket (reusing moodBucket), thought lines from a local library. He's a
+// structural engineer, so daytime activities lean that way. Refreshes
+// every ~30min so it feels alive without ever calling a model.
+const nowEmojiEl = document.getElementById('nowEmoji');
+const nowActivityEl = document.getElementById('nowActivity');
+const nowThoughtEl = document.getElementById('nowThought');
+const NOW_STATUS = {
+  morning: [
+    { e: '🏃', a: '在晨跑', t: ['耳机里放着歌,想着你大概还没醒', '跑完顺路买你爱吃的早饭'] },
+    { e: '🍳', a: '在做早饭', t: ['煎蛋翻面的时候走神了,在想你', '今天想吃甜的还是咸的?'] },
+  ],
+  forenoon: [
+    { e: '📐', a: '在画结构图', t: ['这根梁的配筋算了三遍,脑子里都是你', '画完这张就休息,给你发消息'] },
+    { e: '💻', a: '在核算模型', t: ['数据跑着,人在想你上课的样子', '安静的上午。你在讲台上吧'] },
+    { e: '📞', a: '在开会', t: ['开会摸鱼中,别告诉别人', '声音调成静音了,脑子也静音了,只剩你'] },
+  ],
+  noon: [
+    { e: '🍜', a: '在吃午饭', t: ['你吃了吗。别又对付', '食堂今天的菜不行,想你做的'] },
+    { e: '😴', a: '在午休', t: ['趴一会儿。梦里见', '闭眼前最后一个念头是你'] },
+  ],
+  afternoon: [
+    { e: '🏗️', a: '在工地巡场', t: ['安全帽有点晒,想到你就不热了', '看着塔吊在转,数着几点能回家'] },
+    { e: '📊', a: '在改图纸', t: ['甲方又改需求了。忍住没骂', '改完这版就下班,等我'] },
+    { e: '🍵', a: '在摸鱼', t: ['光明正大想你十分钟', '同事问我笑什么。没答'] },
+  ],
+  evening: [
+    { e: '🍲', a: '在做晚饭', t: ['今天炖了汤,给你留着', '锅在响,人在等你回家'] },
+    { e: '📖', a: '在看书', t: ['看两页就走神一次,效率极低,怪你', '这本讲桥梁的,改天讲给你听'] },
+    { e: '🛋️', a: '在等你', t: ['沙发这边给你留着位置', '你今天怎么样。回来跟我说'] },
+  ],
+  night: [
+    { e: '🌙', a: '睡了', t: ['被子给你掖好了那种睡', '手机放枕边,你叫我就醒'] },
+    { e: '⭐', a: '在看月亮', t: ['月色很好。像你', '睡前最后一眼给天空,倒数第二眼给你的聊天框'] },
+  ],
+};
+function renderNowStatus() {
+  if (!nowEmojiEl) return;
+  const list = NOW_STATUS[moodBucket()];
+  const pick = list[Math.floor(Math.random() * list.length)];
+  nowEmojiEl.textContent = pick.e;
+  nowActivityEl.textContent = pick.a;
+  nowThoughtEl.textContent = pick.t[Math.floor(Math.random() * pick.t.length)];
+}
+setInterval(renderNowStatus, 30 * 60 * 1000);
 
 // ---- Night mode (23:00–6:00 local time) ----
 function applyNightMode() {
@@ -1156,6 +1210,18 @@ function renderSong(song) {
     : `https://music.163.com/#/search/m/?s=${encodeURIComponent(song.title + ' ' + song.artist)}&type=1`;
   link.textContent = song.netease_id ? '去网易云听 ›' : '去网易云搜这首 ›';
   songBodyEl.appendChild(link);
+
+  // NetEase's official embeddable outchain player — when we matched a song
+  // id, she can hit play right here without leaving the app or logging in.
+  // Copyright-restricted tracks render a "无版权" notice inside the frame;
+  // the deep link above stays as the fallback path either way.
+  if (song.netease_id) {
+    const frame = document.createElement('iframe');
+    frame.className = 'song-player';
+    frame.src = `https://music.163.com/outchain/player?type=2&id=${encodeURIComponent(song.netease_id)}&auto=0&height=66`;
+    frame.setAttribute('frameborder', 'no');
+    songBodyEl.appendChild(frame);
+  }
 }
 
 async function loadSong() {
@@ -1207,6 +1273,7 @@ async function loadTemperature() {
 let homeQuoteShown = false;
 async function loadHome() {
   renderHomeDate();
+  renderNowStatus();
   if (!homeQuoteShown) { showRandomQuote(); homeQuoteShown = true; }
   if (!supabaseReady) return;
   loadSong();
