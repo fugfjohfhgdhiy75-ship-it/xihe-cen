@@ -536,12 +536,18 @@ async function lookupNeteaseSongId(title, artist) {
       },
     });
     if (!res.ok) return null;
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('json')) {
-      console.error('lookupNeteaseSongId: non-JSON response, likely blocked (content-type: ' + contentType + ')');
+    // NetEase's legacy endpoint labels its responses text/plain even when
+    // the body is perfectly good JSON — judging by the content-type header
+    // here (a previous version did) rejects working responses. Parse the
+    // body itself and let that be the judge.
+    const bodyText = await res.text();
+    let json;
+    try {
+      json = JSON.parse(bodyText);
+    } catch {
+      console.error('lookupNeteaseSongId: body is not JSON, likely blocked. First 200 chars:', bodyText.slice(0, 200));
       return null;
     }
-    const json = await res.json();
     const songs = (json && json.result && json.result.songs) || [];
 
     // Search is fuzzy and the top hit is often just the closest text match,
@@ -1316,7 +1322,7 @@ app.post('/api/tts', async (req, res) => {
 
 // ElevenLabs speech-to-text (scribe). Only needs the API key, not a voice
 // id — so this can work even before a voice clone is set up.
-async function transcribeAudio(buffer, mimetype) {
+async function transcribeWithElevenLabs(buffer, mimetype) {
   const form = new FormData();
   form.append('file', new Blob([buffer], { type: mimetype || 'audio/mp4' }), 'turn.m4a');
   form.append('model_id', 'scribe_v1');
@@ -1329,9 +1335,54 @@ async function transcribeAudio(buffer, mimetype) {
   const json = await r.json().catch(() => ({}));
   if (!r.ok) {
     console.error('ElevenLabs STT error:', r.status, JSON.stringify(json).slice(0, 300));
-    throw new Error('听不清(语音识别失败: ' + (json.detail && json.detail.message ? json.detail.message : r.status) + ')');
+    throw new Error('ElevenLabs 识别失败: ' + (json.detail && json.detail.message ? json.detail.message : r.status));
   }
   return (json.text || '').trim();
+}
+
+// Gemini's multimodal models transcribe audio directly — cheap, and it
+// reuses the same GEMINI_API_KEY the image feature needs, so no extra
+// account. MiniMax has no public STT product, which is why the "no
+// ElevenLabs quota" fallback lands here instead.
+async function transcribeWithGemini(buffer, mimetype) {
+  const r = await fetch(`${GEMINI_API_HOST}/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { inlineData: { mimeType: mimetype || 'audio/mp4', data: buffer.toString('base64') } },
+          { text: '把这段语音逐字转写成文字(是中文普通话)。只输出转写出的内容本身,不要任何解释、前缀或标点之外的东西。如果整段都没有可识别的人声,输出:(空)' },
+        ],
+      }],
+    }),
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    console.error('Gemini STT error:', r.status, JSON.stringify(json).slice(0, 300));
+    throw new Error('Gemini 识别失败: ' + ((json.error && json.error.message) || r.status));
+  }
+  const parts = (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) || [];
+  const text = parts.filter((p) => p.text).map((p) => p.text).join('').trim();
+  return text === '(空)' ? '' : text;
+}
+
+// Gemini first (cheap, and the key is shared with the image feature),
+// ElevenLabs scribe as fallback — mirrors the TTS side's
+// "don't leave her with nothing over one provider's bad day" approach.
+async function transcribeAudio(buffer, mimetype) {
+  let geminiErr = null;
+  if (GEMINI_READY) {
+    try {
+      return await transcribeWithGemini(buffer, mimetype);
+    } catch (err) {
+      geminiErr = err;
+      if (!ELEVENLABS_API_KEY) throw err;
+      console.error('Gemini STT failed, falling back to ElevenLabs:', err.message);
+    }
+  }
+  if (!ELEVENLABS_API_KEY) throw (geminiErr || new Error('没有可用的语音识别服务'));
+  return transcribeWithElevenLabs(buffer, mimetype);
 }
 
 // One full voice-call turn: her recorded audio in → his spoken reply out.
@@ -1345,7 +1396,7 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
   if (!requireSupabase(res)) return;
   const sessionId = req.body.sessionId;
   if (!sessionId || !req.file) { res.status(400).json({ error: 'sessionId and audio are required' }); return; }
-  if (!ELEVENLABS_API_KEY) { res.status(501).json({ error: '语音通话需要配置 ELEVENLABS_API_KEY(语音识别用它)' }); return; }
+  if (!GEMINI_READY && !ELEVENLABS_API_KEY) { res.status(501).json({ error: '语音通话需要配置 GEMINI_API_KEY(或 ELEVENLABS_API_KEY),语音识别用它' }); return; }
 
   try {
     const userText = await transcribeAudio(req.file.buffer, req.file.mimetype);
