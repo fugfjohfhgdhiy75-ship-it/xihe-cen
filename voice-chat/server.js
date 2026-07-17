@@ -528,9 +528,19 @@ async function lookupNeteaseSongId(title, artist) {
   try {
     const q = encodeURIComponent(`${title} ${artist}`);
     const res = await fetch(`https://music.163.com/api/search/get/web?s=${q}&type=1&offset=0&limit=8`, {
-      headers: { Referer: 'https://music.163.com/' },
+      headers: {
+        Referer: 'https://music.163.com/',
+        // The legacy endpoint frequently rejects requests with no browser
+        // UA — likely why lookups were failing even for well-known songs.
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+      },
     });
     if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('json')) {
+      console.error('lookupNeteaseSongId: non-JSON response, likely blocked (content-type: ' + contentType + ')');
+      return null;
+    }
     const json = await res.json();
     const songs = (json && json.result && json.result.songs) || [];
 
@@ -805,7 +815,27 @@ app.get('/api/daily-song', async (req, res) => {
   const dateStr = shanghaiDateStr();
   const { data: existing, error: fetchErr } = await supabase.from('daily_songs').select('*').eq('song_date', dateStr).maybeSingle();
   if (fetchErr) { res.status(500).json({ error: fetchErr.message }); return; }
-  if (existing) { res.json(existing); return; }
+  if (existing) {
+    // Backfill: rows cached before the id-matching feature existed (or
+    // where the lookup failed that day) have no netease_id, which means no
+    // embedded player and only the search-page fallback link. Re-try the
+    // lookup on fetch so old cached songs heal themselves.
+    if (!existing.netease_id) {
+      const id = await lookupNeteaseSongId(existing.title, existing.artist);
+      if (id) {
+        const { data: updated } = await supabase
+          .from('daily_songs')
+          .update({ netease_id: id })
+          .eq('id', existing.id)
+          .select()
+          .single();
+        res.json(updated || { ...existing, netease_id: id });
+        return;
+      }
+    }
+    res.json(existing);
+    return;
+  }
 
   try {
     const song = await pickDailySong([]);
