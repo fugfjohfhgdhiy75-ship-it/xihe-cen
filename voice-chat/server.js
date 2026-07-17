@@ -96,6 +96,14 @@ if (SUPABASE_READY) {
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const COMPRESS_CHAR_THRESHOLD = Number(process.env.COMPRESS_CHAR_THRESHOLD || 14000);
 const COMPRESS_KEEP_MESSAGES = Number(process.env.COMPRESS_KEEP_MESSAGES || 20);
+// Each compression round adds one more `memories` row, and ALL of them get
+// concatenated into every future prompt — so without a second tier, "memory"
+// would just be another ever-growing blob, just growing slower than raw
+// messages instead of not growing at all. Once the accumulated memories
+// themselves pass this size, re-summarize them into a single consolidated
+// entry so the memory block has an actual ceiling regardless of how long
+// the session has been running.
+const MEMORY_CONSOLIDATE_THRESHOLD = Number(process.env.MEMORY_CONSOLIDATE_THRESHOLD || 6000);
 
 function requireSupabase(res) {
   if (!SUPABASE_READY) {
@@ -152,6 +160,38 @@ async function compressIfNeeded(sessionId) {
     // happening: repeated errors here without a matching "compressed
     // successfully" line means the session's context is growing unchecked.
     console.error(`compressIfNeeded error (session ${sessionId}, history staying uncompressed):`, err);
+  }
+}
+
+// Second tier: once accumulated memory summaries themselves get large,
+// merge them into one so the memory block doesn't grow without bound over
+// a very long-lived session.
+async function consolidateMemoriesIfNeeded(sessionId) {
+  const { data: memRows } = await supabase
+    .from('memories')
+    .select('id, summary, created_at')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: true });
+
+  if (!memRows || memRows.length <= 1) return;
+
+  const totalChars = memRows.reduce((sum, m) => sum + m.summary.length, 0);
+  if (totalChars < MEMORY_CONSOLIDATE_THRESHOLD) return;
+
+  console.log(`consolidateMemoriesIfNeeded: session ${sessionId} has ${memRows.length} memory rows totaling ${totalChars} chars, consolidating`);
+  const combined = memRows.map((m) => m.summary).join('\n\n---\n\n');
+
+  try {
+    const consolidated = await summarizeText(combined);
+    if (!consolidated) {
+      console.error('consolidateMemoriesIfNeeded: summarizeText returned empty, leaving memories unconsolidated this round');
+      return;
+    }
+    await supabase.from('memories').insert({ session_id: sessionId, summary: consolidated });
+    await supabase.from('memories').delete().in('id', memRows.map((m) => m.id));
+    console.log(`consolidateMemoriesIfNeeded: session ${sessionId} merged ${memRows.length} rows into 1 (${consolidated.length} chars)`);
+  } catch (err) {
+    console.error(`consolidateMemoriesIfNeeded error (session ${sessionId}):`, err);
   }
 }
 
@@ -387,7 +427,9 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       await supabase.from('messages').insert({ session_id: sessionId, role: 'assistant', content: text });
       send({ text });
       send({ done: true });
-      compressIfNeeded(sessionId).catch((err) => console.error('compressIfNeeded background error:', err));
+      compressIfNeeded(sessionId)
+        .then(() => consolidateMemoriesIfNeeded(sessionId))
+        .catch((err) => console.error('background memory maintenance error:', err));
     }
     finish();
   } catch (err) {

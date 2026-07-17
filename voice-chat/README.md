@@ -38,6 +38,10 @@ npm start
 
 阈值调得比较宽松是故意的——压缩本质是有损的,压得太勤、摘要写得太短,具体细节会被压没,问起来就会"打哑谜"、前言不搭后语。如果还是觉得它"聊着聊着变笨",可以把 `COMPRESS_CHAR_THRESHOLD` 调得更大,甚至先关掉观察(设一个很大的数字,比如 999999)。
 
+压缩出来的"记忆"存进 `memories` 表后不会只有一条——聊得越久、触发压缩的次数越多,`memories` 表里的行就越多,而这些行**每次对话都会全部拼进提示词里**,不加处理的话,记忆本身也会变成一个跟着对话一起越滚越大的东西,不是真正意义上"占用量固定"的记忆库。所以加了第二层:这些记忆摘要累计超过 `MEMORY_CONSOLIDATE_THRESHOLD`(默认 6000 字)时,会自动把已有的所有记忆再合并压缩成一条,把"记忆"这部分的体积摁住,不会无限膨胀。
+
+如果某个对话聊得特别久,你发现它突然像是"完全不记得之前聊过什么",很可能是压缩(或者记忆合并)那一步因为中转站不稳定而失败了几次,历史记录/记忆没能被及时收拢,原始上下文堆得太大导致模型注意力跟不过来——不是真的丢数据。去 Render 的 Logs 里搜 `compressIfNeeded` 或 `consolidateMemoriesIfNeeded` 能看到是不是这个原因(有没有连续报错、成功了没有)。
+
 **发图片**需要额外建一个 Storage 桶:服务器启动时会自动尝试创建一个叫 `chat-images` 的公开桶,一般不用手动管;如果启动日志报 `createBucket error`,就去 Supabase 的 **Storage** 页面手动建一个名字为 `chat-images` 的 **Public** 桶。另外 `messages` 表需要 `image_url` / `image_urls` 两个字段(后者是数组,存"一次发多张"的情况),老项目在 SQL Editor 里跑一下这两行就行(新项目跑完整个 `supabase-schema.sql` 已经包含):
 ```sql
 alter table messages add column if not exists image_url text;
