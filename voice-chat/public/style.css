@@ -114,7 +114,7 @@ body::before {
   justify-content: space-around;
   gap: 4px;
   padding: 6px 4px calc(env(safe-area-inset-bottom) + 6px);
-  margin-top: 6px;
+  margin-top: 8px;
   background: var(--glass-strong);
   border: 1px solid var(--glass-border);
   border-radius: 22px;
@@ -526,9 +526,11 @@ h1 {
   flex: none;
   /* Used to be calc(env(safe-area-inset-bottom) + 10px) back when this was
      the bottom-most element in .app — now the tab bar sits below it and
-     already reserves that same safe-area strip itself, so keeping it here
-     too just doubled up as a visible empty gap above the tab bar. */
-  padding-bottom: 8px;
+     already reserves that same safe-area strip itself. Gap to the tab bar
+     is entirely .tabbar's own margin-top now — one source of truth
+     instead of splitting it across both, which is what made it look wider
+     than intended. */
+  padding-bottom: 0;
 }
 
 /* While the keyboard is up it already covers the home-indicator strip, so
