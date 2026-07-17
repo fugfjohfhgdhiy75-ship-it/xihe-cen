@@ -91,7 +91,6 @@ const sendBtn = document.getElementById('sendBtn');
 const imageBtn = document.getElementById('imageBtn');
 const imageInput = document.getElementById('imageInput');
 const imagePreview = document.getElementById('imagePreview');
-const genImageBtn = document.getElementById('genImageBtn');
 
 const MAX_IMAGES = 6;
 
@@ -168,7 +167,6 @@ async function init() {
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({}));
   ttsProvider = cfg.ttsProvider || 'browser';
   supabaseReady = Boolean(cfg.supabaseReady);
-  if (cfg.geminiReady) genImageBtn.classList.remove('hidden');
 
   loadHome();
   showRandomMoodStatus();
@@ -535,6 +533,18 @@ function appendBubble(role, text, imageUrls, id) {
   return bubble;
 }
 
+function attachImageToBubble(bubble, url) {
+  if (!url) return;
+  const grid = document.createElement('div');
+  grid.className = 'bubble-img-grid';
+  const img = document.createElement('img');
+  img.className = 'bubble-img';
+  img.src = url;
+  img.alt = '图片';
+  grid.appendChild(img);
+  bubble.el.insertBefore(grid, bubble.el.firstChild);
+}
+
 function startEditBubble(bubble) {
   if (!bubble.id) {
     statusText.textContent = '这条消息还没保存好,等一下再改';
@@ -615,6 +625,7 @@ async function regenerateReplyAfterEdit(messageId) {
   statusText.textContent = randomLoadingLine();
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
+  let gotImage = false;
   try {
     const form = new FormData();
     form.append('sessionId', currentSessionId);
@@ -640,6 +651,7 @@ async function regenerateReplyAfterEdit(messageId) {
           renderBubbleText(assistantBubble.textEl, formatForDisplay(fullText));
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
+        if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
       }
     }
 
@@ -652,8 +664,10 @@ async function regenerateReplyAfterEdit(messageId) {
         sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
         renderSessionsList();
       }
-    } else {
+    } else if (!gotImage) {
       assistantBubble.textEl.textContent = '(没有收到回复)';
+      statusText.textContent = '';
+    } else {
       statusText.textContent = '';
     }
   } catch (err) {
@@ -809,6 +823,7 @@ async function sendMessage(rawText) {
 
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
+  let gotImage = false;
 
   try {
     const form = new FormData();
@@ -840,6 +855,7 @@ async function sendMessage(rawText) {
           renderBubbleText(assistantBubble.textEl, formatForDisplay(fullText));
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
+        if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
       }
     }
 
@@ -852,8 +868,10 @@ async function sendMessage(rawText) {
         sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
         renderSessionsList();
       }
-    } else {
+    } else if (!gotImage) {
       assistantBubble.textEl.textContent = '(没有收到回复)';
+      statusText.textContent = '';
+    } else {
       statusText.textContent = '';
     }
   } catch (err) {
@@ -946,40 +964,6 @@ function clearImageSelection() {
 }
 
 imageBtn.addEventListener('click', () => imageInput.click());
-
-// "让他画一张" — uses whatever's currently typed as the image prompt,
-// separate from the normal send flow (Claude can't generate images, so
-// this is a distinct call to Gemini). The result comes back as a normal
-// assistant message with an image attached.
-genImageBtn.addEventListener('click', async () => {
-  const prompt = textInput.value.trim();
-  if (!prompt) { statusText.textContent = '先在输入框写好想让他画什么'; return; }
-  if (!currentSessionId) return;
-
-  textInput.value = '';
-  genImageBtn.disabled = true;
-  statusText.textContent = '正在画...';
-  const placeholder = appendBubble('assistant', '（正在画...）');
-
-  try {
-    const res = await fetch('/api/generate-image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: currentSessionId, prompt }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '画图失败');
-    placeholder.el.remove();
-    appendBubble('assistant', '', [data.image_url], data.id);
-    statusText.textContent = '';
-  } catch (err) {
-    placeholder.el.remove();
-    appendBubble('assistant', `(画图失败: ${err.message})`);
-    statusText.textContent = '';
-  } finally {
-    genImageBtn.disabled = false;
-  }
-});
 
 imageInput.addEventListener('change', () => {
   const files = Array.from(imageInput.files || []);

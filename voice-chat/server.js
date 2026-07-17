@@ -786,58 +786,47 @@ app.post('/api/daily-song/reroll', async (req, res) => {
 // image attached, reusing the same messages.image_url column real image
 // uploads use, so it shows up in history/reload exactly like any other
 // picture.
-app.post('/api/generate-image', async (req, res) => {
-  if (!requireSupabase(res)) return;
-  if (!GEMINI_READY) { res.status(501).json({ error: 'Gemini 没配置(缺 GEMINI_API_KEY)' }); return; }
-  const sessionId = req.body.sessionId;
-  const prompt = (req.body.prompt || '').trim();
-  if (!sessionId || !prompt) { res.status(400).json({ error: 'sessionId and prompt are required' }); return; }
-
-  try {
-    const geminiRes = await fetch(
-      `${GEMINI_API_HOST}/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      }
-    );
-    const geminiJson = await geminiRes.json();
-    if (!geminiRes.ok) {
-      throw new Error((geminiJson.error && geminiJson.error.message) || 'Gemini 请求失败');
+// Shared by the manual "让他画一张" button and the automatic in-chat
+// marker below. Throws on any failure (network, Gemini refusal, storage
+// upload) — callers decide whether that should surface as an error or
+// just silently fall back to text-only.
+async function generateGeminiImage(sessionId, prompt) {
+  const geminiRes = await fetch(
+    `${GEMINI_API_HOST}/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     }
-    const parts = (geminiJson.candidates && geminiJson.candidates[0] && geminiJson.candidates[0].content && geminiJson.candidates[0].content.parts) || [];
-    const imagePart = parts.find((p) => p.inlineData && p.inlineData.data);
-    if (!imagePart) {
-      // Most likely cause: Gemini's safety filters declined the prompt
-      // rather than a hard error — surface that distinctly from a plain
-      // network/API failure so it doesn't read as "broken."
-      throw new Error('这次没画出来(可能是内容被拦下了),换个描述再试试');
-    }
-
-    const buffer = Buffer.from(imagePart.inlineData.data, 'base64');
-    const ext = (imagePart.inlineData.mimeType || 'image/png').split('/')[1] || 'png';
-    const path = `${sessionId}/gemini-${Date.now()}.${ext}`;
-    const { error: uploadErr } = await supabase.storage
-      .from(IMAGE_BUCKET)
-      .upload(path, buffer, { contentType: imagePart.inlineData.mimeType || 'image/png' });
-    if (uploadErr) throw new Error('图片保存失败: ' + uploadErr.message);
-    const imageUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
-
-    const { data: inserted, error: insertErr } = await supabase
-      .from('messages')
-      .insert({ session_id: sessionId, role: 'assistant', content: '', image_url: imageUrl, image_urls: [imageUrl] })
-      .select()
-      .single();
-    if (insertErr) throw new Error('保存消息失败: ' + insertErr.message);
-
-    await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
-    res.json(inserted);
-  } catch (err) {
-    console.error('POST /api/generate-image error:', err);
-    res.status(500).json({ error: err.message || '画图失败' });
+  );
+  const geminiJson = await geminiRes.json();
+  if (!geminiRes.ok) {
+    throw new Error((geminiJson.error && geminiJson.error.message) || 'Gemini 请求失败');
   }
-});
+  const parts = (geminiJson.candidates && geminiJson.candidates[0] && geminiJson.candidates[0].content && geminiJson.candidates[0].content.parts) || [];
+  const imagePart = parts.find((p) => p.inlineData && p.inlineData.data);
+  if (!imagePart) {
+    // Most likely cause: Gemini's safety filters declined the prompt
+    // rather than a hard error — surface that distinctly from a plain
+    // network/API failure so it doesn't read as "broken."
+    throw new Error('这次没画出来(可能是内容被拦下了)');
+  }
+
+  const buffer = Buffer.from(imagePart.inlineData.data, 'base64');
+  const ext = (imagePart.inlineData.mimeType || 'image/png').split('/')[1] || 'png';
+  const path = `${sessionId}/gemini-${Date.now()}.${ext}`;
+  const { error: uploadErr } = await supabase.storage
+    .from(IMAGE_BUCKET)
+    .upload(path, buffer, { contentType: imagePart.inlineData.mimeType || 'image/png' });
+  if (uploadErr) throw new Error('图片保存失败: ' + uploadErr.message);
+  return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+// Spam guard for the automatic in-chat image marker below — Gemini calls
+// cost real money per image, and this fires without her explicitly asking
+// for it each time, so it needs its own independent throttle.
+const AUTO_IMAGE_COOLDOWN_MS = 10 * 60 * 1000;
+let lastAutoImageAt = 0;
 
 app.post('/api/chat', upload.array('images', 6), async (req, res) => {
   const sessionId = req.body.sessionId;
@@ -922,6 +911,9 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // Real conversation varies in length and register with the moment.
     systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
+    if (GEMINI_READY) {
+      systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。');
+    }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
     const messages = (history || []).map((m) => ({ role: m.role, content: m.content }));
@@ -947,17 +939,39 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       messages,
     });
 
-    const text = (claudeMessage.content || [])
+    let text = (claudeMessage.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('');
 
-    if (!text) {
+    // Strip the [画:描述] marker (see the system prompt above) before it
+    // ever reaches her — this is a signal for the server, not something
+    // she should see as literal bracket text. If found, try to actually
+    // generate the image; on any failure (rate-limited, Gemini declined,
+    // network) just fall back to the text reply alone rather than
+    // failing the whole turn over a picture that didn't work out.
+    let imageUrl = null;
+    const markerMatch = text.match(/\[画[:：]\s*([^\]]+)\]/);
+    if (markerMatch) {
+      text = (text.slice(0, markerMatch.index) + text.slice(markerMatch.index + markerMatch[0].length)).trim();
+      if (GEMINI_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
+        try {
+          imageUrl = await generateGeminiImage(sessionId, markerMatch[1].trim());
+          lastAutoImageAt = Date.now();
+        } catch (err) {
+          console.error('auto image generation failed:', err.message);
+        }
+      }
+    }
+
+    if (!text && !imageUrl) {
       console.error('/api/chat: empty completion, message =', JSON.stringify(claudeMessage));
       send({ error: `模型没返回任何文字(stop_reason=${claudeMessage.stop_reason}),把这条截图发给开发者` });
     } else {
-      await supabase.from('messages').insert({ session_id: sessionId, role: 'assistant', content: text });
-      send({ text });
+      const insertPayload = { session_id: sessionId, role: 'assistant', content: text };
+      if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
+      await supabase.from('messages').insert(insertPayload);
+      send({ text, imageUrl });
       send({ done: true });
       compressIfNeeded(sessionId)
         .then(() => consolidateMemoriesIfNeeded(sessionId))
