@@ -336,6 +336,8 @@ async function pickDailySong(rejectedTitles) {
   const avoidList = rejectedTitles.length ? `\n今天已经被她划走的歌(不要再推荐这些): ${rejectedTitles.join('、')}` : '';
   const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调,可以带引号引用歌词)。${avoidList}
 
+重要:只能选你非常确定真实存在、原唱/歌手信息确定无误的歌——挑那种知名度比较高、能确定是哪个歌手唱的的歌,不要为了应景硬编一首冷门歌或者猜歌手是谁。宁可选一首更大众但你完全确定的歌,也不要选一首你只是"大概觉得"存在的歌。歌名和歌手都要写这首歌本身的原唱信息,不要写翻唱者、不要写合集/专辑名当歌名。
+
 严格按下面这个格式输出,不要用 JSON,三行,不要有别的文字:
 TITLE: 歌名
 ARTIST: 歌手
@@ -430,16 +432,37 @@ async function getWeather() {
 // signing like their newer endpoints do); if it ever breaks or the
 // request fails for any reason, this just returns null and the frontend
 // falls back to a plain search link — never blocks the recommendation.
+function normalizeForMatch(s) {
+  return (s || '').toLowerCase().replace(/[\s·・,，、\-—()（）\[\]]/g, '');
+}
+
 async function lookupNeteaseSongId(title, artist) {
   try {
     const q = encodeURIComponent(`${title} ${artist}`);
-    const res = await fetch(`https://music.163.com/api/search/get/web?s=${q}&type=1&offset=0&limit=1`, {
+    const res = await fetch(`https://music.163.com/api/search/get/web?s=${q}&type=1&offset=0&limit=8`, {
       headers: { Referer: 'https://music.163.com/' },
     });
     if (!res.ok) return null;
     const json = await res.json();
-    const song = json && json.result && json.result.songs && json.result.songs[0];
-    return song ? String(song.id) : null;
+    const songs = (json && json.result && json.result.songs) || [];
+
+    // Search is fuzzy and the top hit is often just the closest text match,
+    // not necessarily the right song — blindly trusting songs[0] is what
+    // produced wrong/mismatched-artist links before. Only accept a result
+    // whose title AND at least one credited artist both genuinely overlap
+    // what was asked for; otherwise treat it as "no confident match" and
+    // let the frontend fall back to a plain search link instead of
+    // pointing at the wrong song.
+    const wantTitle = normalizeForMatch(title);
+    const wantArtist = normalizeForMatch(artist);
+    const match = songs.find((song) => {
+      const gotTitle = normalizeForMatch(song.name);
+      const gotArtists = (song.artists || []).map((a) => normalizeForMatch(a.name));
+      const titleOk = gotTitle && (gotTitle.includes(wantTitle) || wantTitle.includes(gotTitle));
+      const artistOk = wantArtist && gotArtists.some((a) => a && (a.includes(wantArtist) || wantArtist.includes(a)));
+      return titleOk && artistOk;
+    });
+    return match ? String(match.id) : null;
   } catch (err) {
     console.error('lookupNeteaseSongId error:', err.message);
     return null;
