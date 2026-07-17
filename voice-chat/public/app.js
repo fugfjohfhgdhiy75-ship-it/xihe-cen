@@ -513,7 +513,10 @@ function appendBubble(role, text, imageUrls, id) {
     speedBtn.textContent = formatRate(playbackRate);
     audioControls.appendChild(speedBtn);
 
-    row.appendChild(audioControls);
+    // Below the text, not beside it — inline in the flex row it reserved
+    // a full-height column on the right, forcing every line of text to
+    // wrap ~80px early (the "his lines never reach the edge" complaint).
+    div.appendChild(audioControls);
   }
 
   let editBtn = null;
