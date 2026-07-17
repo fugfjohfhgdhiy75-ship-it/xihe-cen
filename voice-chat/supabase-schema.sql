@@ -48,6 +48,13 @@ alter table settings add column if not exists daily_song_enabled boolean not nul
 alter table settings add column if not exists together_since date;
 alter table settings add column if not exists weather_city text;
 
+-- Per-site API overrides editable from the More page — when set they take
+-- priority over the server's ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY /
+-- MODEL env vars, so she can switch relays/models without touching Render.
+alter table settings add column if not exists api_base_url text;
+alter table settings add column if not exists api_key text;
+alter table settings add column if not exists model text;
+
 -- Diary entries "苏晏" writes unprompted, reflecting on recent conversation
 -- (or just whatever's on her mind if nothing's been said in a while), plus
 -- a mood emoji and a 0-100 relationship "temperature". Not one-per-day —

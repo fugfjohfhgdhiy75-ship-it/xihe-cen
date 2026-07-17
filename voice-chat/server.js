@@ -61,11 +61,33 @@ app.use(express.static('public'));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  baseURL: process.env.ANTHROPIC_BASE_URL || undefined,
-});
+// The base URL / key / model can be overridden from the More page (stored
+// in the settings table) so she can switch relays and models without
+// touching Render's env vars. Env vars are the fallback when the DB
+// fields are empty. The client is rebuilt whenever the overrides change.
 const MODEL = process.env.MODEL || 'claude-sonnet-5';
+const apiOverrides = { api_base_url: null, api_key: null, model: null };
+let anthropic;
+function rebuildAnthropicClient() {
+  anthropic = new Anthropic({
+    apiKey: apiOverrides.api_key || process.env.ANTHROPIC_API_KEY,
+    baseURL: apiOverrides.api_base_url || process.env.ANTHROPIC_BASE_URL || undefined,
+  });
+}
+rebuildAnthropicClient();
+function currentModel() {
+  return apiOverrides.model || MODEL;
+}
+async function loadApiOverrides() {
+  if (!SUPABASE_READY) return;
+  const { data } = await supabase.from('settings').select('api_base_url, api_key, model').eq('id', 1).maybeSingle();
+  if (!data) return;
+  apiOverrides.api_base_url = (data.api_base_url || '').trim() || null;
+  apiOverrides.api_key = (data.api_key || '').trim() || null;
+  apiOverrides.model = (data.model || '').trim() || null;
+  rebuildAnthropicClient();
+  console.log(`loadApiOverrides: base=${apiOverrides.api_base_url || '(env)'} model=${currentModel()} key=${apiOverrides.api_key ? '(db)' : '(env)'}`);
+}
 
 // Relays (中转站) are noticeably less stable than the official API — a
 // request can time out or the connection can drop entirely on their side,
@@ -142,6 +164,7 @@ if (SUPABASE_READY) {
   }).catch((err) => {
     console.error('createBucket threw:', err);
   });
+  loadApiOverrides().catch((err) => console.error('loadApiOverrides at startup failed:', err));
 }
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
@@ -276,7 +299,7 @@ ${transcript}`;
   }
 
   const message = await createMessageWithRetry({
-    model: MODEL,
+    model: currentModel(),
     max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -352,7 +375,7 @@ TEMP: 数字
 日记正文从这里开始`;
 
   const message = await createMessageWithRetry({
-    model: MODEL,
+    model: currentModel(),
     max_tokens: 1000,
     system: systemPrompt || undefined,
     messages: [{ role: 'user', content: prompt }],
@@ -395,7 +418,7 @@ ARTIST: 歌手
 REASON: 推荐理由`;
 
   const message = await createMessageWithRetry({
-    model: MODEL,
+    model: currentModel(),
     max_tokens: 300,
     messages: [{ role: 'user', content: prompt }],
   });
@@ -613,13 +636,53 @@ app.put('/api/settings', async (req, res) => {
   }
   if (req.body.together_since !== undefined) update.together_since = req.body.together_since || null;
   if (req.body.weather_city !== undefined) update.weather_city = (req.body.weather_city || '').trim() || null;
+  let apiFieldsChanged = false;
+  for (const key of ['api_base_url', 'api_key', 'model']) {
+    if (req.body[key] !== undefined) {
+      update[key] = (req.body[key] || '').trim() || null;
+      apiFieldsChanged = true;
+    }
+  }
   const { data, error } = await supabase
     .from('settings')
     .upsert(update)
     .select()
     .single();
   if (error) { res.status(500).json({ error: error.message }); return; }
+  if (apiFieldsChanged) {
+    await loadApiOverrides().catch((err) => console.error('loadApiOverrides after settings save failed:', err));
+  }
   res.json(data);
+});
+
+// Asks the currently-configured endpoint (DB override first, env fallback)
+// what models it offers. Sends both auth header styles at once — the
+// official Anthropic API wants x-api-key + anthropic-version, most
+// OpenAI-compatible relays want Authorization: Bearer; extra headers are
+// ignored by whichever side doesn't use them.
+app.get('/api/models', async (req, res) => {
+  const base = (apiOverrides.api_base_url || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, '');
+  const key = apiOverrides.api_key || process.env.ANTHROPIC_API_KEY || '';
+  try {
+    const r = await fetch(`${base}/v1/models`, {
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        Authorization: `Bearer ${key}`,
+      },
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      res.status(502).json({ error: (json.error && (json.error.message || json.error)) || `接口返回 ${r.status}` });
+      return;
+    }
+    const list = Array.isArray(json.data) ? json.data : (Array.isArray(json.models) ? json.models : []);
+    const models = list.map((m) => m.id || m.name).filter(Boolean);
+    if (!models.length) { res.status(502).json({ error: '这个接口没有返回模型列表' }); return; }
+    res.json({ models, current: currentModel() });
+  } catch (err) {
+    res.status(502).json({ error: '拉取模型列表失败: ' + err.message });
+  }
 });
 
 app.get('/api/diary', async (req, res) => {
@@ -694,7 +757,7 @@ ${reply}
 请以"苏晏"第一人称,针对她这句回复写一段简短的日记回信(80-150字左右),像是翻回这篇日记补写的一句话,口语化、真情实感,不要写成正式回信的格式。只输出正文,不要加"回信:"之类的前缀。`;
 
       const message = await createMessageWithRetry({
-        model: MODEL,
+        model: currentModel(),
         max_tokens: 500,
         system: systemPrompt || undefined,
         messages: [{ role: 'user', content: prompt }],
@@ -933,7 +996,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     }
 
     const claudeMessage = await createMessageWithRetry({
-      model: MODEL,
+      model: currentModel(),
       max_tokens: 1024,
       system,
       messages,
@@ -998,14 +1061,14 @@ app.get('/api/debug-chat', async (req, res) => {
   const started = Date.now();
   try {
     const message = await anthropic.messages.create({
-      model: MODEL,
+      model: currentModel(),
       max_tokens: 50,
       messages: [{ role: 'user', content: 'Say "hello" and nothing else.' }],
     });
     res.json({
       ok: true,
       ms: Date.now() - started,
-      model: MODEL,
+      model: currentModel(),
       baseURL: process.env.ANTHROPIC_BASE_URL || '(official)',
       stop_reason: message.stop_reason,
       content: message.content,
@@ -1014,7 +1077,7 @@ app.get('/api/debug-chat', async (req, res) => {
     res.status(500).json({
       ok: false,
       ms: Date.now() - started,
-      model: MODEL,
+      model: currentModel(),
       baseURL: process.env.ANTHROPIC_BASE_URL || '(official)',
       name: err && err.name,
       message: err && err.message,

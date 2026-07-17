@@ -1302,6 +1302,21 @@ h1 {
   text-align: right;
 }
 
+.more-full-input {
+  width: 100%;
+  background: rgba(255,255,255,0.35);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 9px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.more-card select#modelSelect {
+  width: 100%;
+}
+
 .together-days {
   font-size: 12px;
   color: var(--text-dim);

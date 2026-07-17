@@ -85,6 +85,12 @@ const toggleSleepStateEl = document.getElementById('toggleSleepState');
 const togetherSinceEl = document.getElementById('togetherSince');
 const togetherDaysEl = document.getElementById('togetherDays');
 const weatherCityEl = document.getElementById('weatherCity');
+const apiBaseUrlEl = document.getElementById('apiBaseUrl');
+const apiKeyInputEl = document.getElementById('apiKeyInput');
+const modelInputEl = document.getElementById('modelInput');
+const modelSelectEl = document.getElementById('modelSelect');
+const fetchModelsBtn = document.getElementById('fetchModelsBtn');
+const modelStatusEl = document.getElementById('modelStatus');
 
 const textInput = document.getElementById('textInput');
 const sendBtn = document.getElementById('sendBtn');
@@ -224,6 +230,9 @@ async function loadSettings() {
     toggleSleepStateEl.checked = data.sleep_state_enabled !== false;
     togetherSinceEl.value = data.together_since || '';
     weatherCityEl.value = data.weather_city || '';
+    apiBaseUrlEl.value = data.api_base_url || '';
+    apiKeyInputEl.value = data.api_key || '';
+    modelInputEl.value = data.model || '';
     renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
@@ -278,6 +287,52 @@ togetherSinceEl.addEventListener('change', () => {
 weatherCityEl.addEventListener('change', () => {
   patchSettings({ weather_city: weatherCityEl.value });
   loadWeather();
+});
+
+// ---- Model / API overrides ----
+
+apiBaseUrlEl.addEventListener('change', async () => {
+  await patchSettings({ api_base_url: apiBaseUrlEl.value });
+  modelStatusEl.textContent = '接口地址已保存';
+});
+apiKeyInputEl.addEventListener('change', async () => {
+  await patchSettings({ api_key: apiKeyInputEl.value });
+  modelStatusEl.textContent = 'API Key 已保存';
+});
+modelInputEl.addEventListener('change', async () => {
+  await patchSettings({ model: modelInputEl.value });
+  modelStatusEl.textContent = modelInputEl.value ? `模型已切换为 ${modelInputEl.value}` : '已恢复服务器默认模型';
+});
+
+fetchModelsBtn.addEventListener('click', async () => {
+  fetchModelsBtn.disabled = true;
+  modelStatusEl.textContent = '正在拉取模型列表...';
+  try {
+    const res = await fetch('/api/models');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '拉取失败');
+    modelSelectEl.innerHTML = '<option value="">— 选一个模型 —</option>';
+    data.models.forEach((m) => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      if (m === data.current) opt.selected = true;
+      modelSelectEl.appendChild(opt);
+    });
+    modelSelectEl.classList.remove('hidden');
+    modelStatusEl.textContent = `拿到 ${data.models.length} 个模型,从下面选一个`;
+  } catch (err) {
+    modelStatusEl.textContent = err.message;
+  } finally {
+    fetchModelsBtn.disabled = false;
+  }
+});
+
+modelSelectEl.addEventListener('change', async () => {
+  if (!modelSelectEl.value) return;
+  modelInputEl.value = modelSelectEl.value;
+  await patchSettings({ model: modelSelectEl.value });
+  modelStatusEl.textContent = `模型已切换为 ${modelSelectEl.value}`;
 });
 saveSettingsBtn.addEventListener('click', saveSettings);
 

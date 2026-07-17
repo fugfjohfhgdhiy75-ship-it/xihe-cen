@@ -174,6 +174,19 @@
           </div>
 
           <div class="card more-card">
+            <label>模型 / API 设置(留空的项用服务器默认配置)</label>
+            <label>中转站接口地址(不带 /v1)</label>
+            <input type="text" id="apiBaseUrl" class="more-full-input" placeholder="https://xxx.com" autocomplete="off">
+            <label>API Key</label>
+            <input type="password" id="apiKeyInput" class="more-full-input" placeholder="sk-..." autocomplete="off">
+            <label>模型</label>
+            <input type="text" id="modelInput" class="more-full-input" placeholder="比如 claude-sonnet-5" autocomplete="off">
+            <select id="modelSelect" class="hidden"></select>
+            <button id="fetchModelsBtn" class="mini-btn">拉取模型列表</button>
+            <div id="modelStatus" class="doc-status"></div>
+          </div>
+
+          <div class="card more-card">
             <label class="switch-row">
               <span>自动写日记</span>
               <input type="checkbox" id="toggleAutoDiary">
