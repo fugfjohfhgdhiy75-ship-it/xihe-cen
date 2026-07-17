@@ -668,16 +668,42 @@ async function sendMessage(rawText) {
     }
   } catch (err) {
     // The user message (and possibly the reply) may already be saved
-    // server-side even if this connection dropped — offer to reload the
-    // real state from the database instead of silently losing it or
-    // risking a duplicate send on retry.
-    assistantBubble.textEl.textContent = `(出错了: ${err.message} —— 点这条消息重新加载,看看是不是其实发出去了)`;
-    assistantBubble.el.style.cursor = 'pointer';
-    assistantBubble.el.addEventListener('click', () => selectSession(currentSessionId), { once: true });
-    statusText.textContent = '';
+    // server-side even if this connection dropped — this was previously a
+    // manual "tap to reload" prompt, but that happened often enough to be
+    // annoying, so try reloading automatically a couple of times first
+    // (giving the server a moment in case it's still mid-request/retry)
+    // before falling back to asking the user to do it themselves.
+    assistantBubble.el.remove();
+    statusText.textContent = '连接断了,自动重连中...';
+    const recovered = await tryAutoRecover(currentSessionId, [1500, 3000]);
+    if (!recovered) {
+      statusText.textContent = '';
+      const retryBubble = appendBubble('assistant', `(出错了: ${err.message} —— 点这条消息重新加载,看看是不是其实发出去了)`);
+      retryBubble.el.style.cursor = 'pointer';
+      retryBubble.el.addEventListener('click', () => selectSession(currentSessionId), { once: true });
+    }
   } finally {
     setBusy(false);
   }
+}
+
+// Reload the session from the database and check whether the last message
+// is now an assistant reply (meaning the request actually completed
+// server-side despite the client-side connection dropping). Waits `delays`
+// between attempts, longest last, since the server may still be retrying
+// internally when the first check happens.
+async function tryAutoRecover(sessionId, delays) {
+  for (const delay of delays) {
+    await new Promise((r) => setTimeout(r, delay));
+    try {
+      await selectSession(sessionId);
+    } catch {
+      continue;
+    }
+    const last = transcriptEl.lastElementChild;
+    if (last && last.classList.contains('assistant')) return true;
+  }
+  return false;
 }
 
 sendBtn.addEventListener('click', () => {
