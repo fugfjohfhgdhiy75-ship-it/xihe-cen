@@ -1094,15 +1094,20 @@ async function tryAutoRecover(sessionId, delays) {
   return false;
 }
 
+// Deliberately NO unlockAudioPlayback() here: playing even the silent
+// unlock clip grabs the iOS audio session and pauses whatever music app
+// is playing in the background — sending a text message must not do
+// that. It was only ever needed when replies auto-played TTS; now that
+// playback requires tapping ▶, that tap is its own gesture and unlocks
+// synchronously inside the play-button handler. Calls still unlock at
+// call start, which is the one place taking over audio is expected.
 sendBtn.addEventListener('click', () => {
-  unlockAudioPlayback();
   sendMessage(textInput.value);
 });
 
 textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    unlockAudioPlayback();
     sendMessage(textInput.value);
   }
 });
