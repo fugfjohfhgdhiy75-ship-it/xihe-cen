@@ -1373,6 +1373,48 @@ h1 {
   line-height: 1.5;
 }
 
+/* Custom chat background from the workshop — layered inside the chat
+   view only, over the global sky. Bubbles are translucent glass, so the
+   illustration shows through them; a faint top-to-bottom white wash
+   keeps text readable over busy strokes. */
+#view-chat.custom-bg {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 18px 18px 0 0;
+  position: relative;
+}
+
+#view-chat.custom-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.05) 40%, rgba(255, 255, 255, 0.14) 100%);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.bg-preview-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.bg-preview {
+  width: 110px;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.bg-preview-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .song-open-link {
   align-self: flex-start;
   margin-top: 8px;

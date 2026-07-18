@@ -289,6 +289,7 @@ async function loadSettings() {
     modelInputEl.value = data.model || '';
     photoAppearanceEl.value = data.photo_appearance || '';
     renderPhotoRef(data.photo_reference_url || null);
+    applyChatBg(data.chat_bg_url || null);
     renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
@@ -397,6 +398,63 @@ photoRefRemoveEl.addEventListener('click', async () => {
   } catch (err) {
     photoRefStatusEl.textContent = err.message;
   }
+});
+
+// ---- Chat background workshop ----
+
+const bgPromptInputEl = document.getElementById('bgPromptInput');
+const bgGenerateBtn = document.getElementById('bgGenerateBtn');
+const bgPreviewWrapEl = document.getElementById('bgPreviewWrap');
+const bgPreviewEl = document.getElementById('bgPreview');
+const bgApplyBtn = document.getElementById('bgApplyBtn');
+const bgResetBtn = document.getElementById('bgResetBtn');
+const bgStatusEl = document.getElementById('bgStatus');
+let bgCandidateUrl = null;
+
+function applyChatBg(url) {
+  const chatView = document.getElementById('view-chat');
+  if (url) {
+    chatView.classList.add('custom-bg');
+    chatView.style.backgroundImage = `url("${url}")`;
+  } else {
+    chatView.classList.remove('custom-bg');
+    chatView.style.backgroundImage = '';
+  }
+}
+
+bgGenerateBtn.addEventListener('click', async () => {
+  bgGenerateBtn.disabled = true;
+  bgStatusEl.textContent = '在画了,大概要 20 秒...';
+  try {
+    const res = await fetch('/api/generate-chat-bg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: bgPromptInputEl.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '生成失败');
+    bgCandidateUrl = data.url;
+    bgPreviewEl.src = data.url;
+    bgPreviewWrapEl.classList.remove('hidden');
+    bgStatusEl.textContent = '画好了——满意就点"就用这张",不满意改改描述再生成';
+  } catch (err) {
+    bgStatusEl.textContent = '生成失败: ' + err.message;
+  } finally {
+    bgGenerateBtn.disabled = false;
+  }
+});
+
+bgApplyBtn.addEventListener('click', async () => {
+  if (!bgCandidateUrl) return;
+  await patchSettings({ chat_bg_url: bgCandidateUrl });
+  applyChatBg(bgCandidateUrl);
+  bgStatusEl.textContent = '已启用,去聊天页看看效果';
+});
+
+bgResetBtn.addEventListener('click', async () => {
+  await patchSettings({ chat_bg_url: '' });
+  applyChatBg(null);
+  bgStatusEl.textContent = '已恢复默认背景';
 });
 
 // ---- Model / API overrides ----

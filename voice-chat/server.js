@@ -786,6 +786,7 @@ app.put('/api/settings', async (req, res) => {
   if (req.body.together_since !== undefined) update.together_since = req.body.together_since || null;
   if (req.body.weather_city !== undefined) update.weather_city = (req.body.weather_city || '').trim() || null;
   if (req.body.photo_appearance !== undefined) update.photo_appearance = (req.body.photo_appearance || '').trim() || null;
+  if (req.body.chat_bg_url !== undefined) update.chat_bg_url = (req.body.chat_bg_url || '').trim() || null;
   let apiFieldsChanged = false;
   for (const key of ['api_base_url', 'api_key', 'model']) {
     if (req.body[key] !== undefined) {
@@ -850,6 +851,52 @@ async function getConfirmedMilestonesBlock() {
     return null;
   }
 }
+
+// 背景工坊 — generates a candidate chat-page background with her MiniMax
+// key (Ghibli summer-garden by default, prompt editable in the More
+// page). Deliberately NOT generateMinimaxImage: backgrounds must not
+// inherit the persona appearance/face reference, and they're portrait
+// wallpaper ratio. Costs money per hit, so it sits behind the site auth
+// gate like every other API here (no extra passcode needed).
+const DEFAULT_CHAT_BG_PROMPT = '吉卜力风格手绘水彩插画:夏日庭院,湛蓝天空和大朵白云,阳光透过绿叶洒下,院子里有木桌、白色纱帘和风铃,清新的蓝白主色调,柔和治愈,细节丰富。竖构图手机壁纸,画面中部和下部保持柔和简洁,方便叠加聊天气泡。';
+
+app.post('/api/generate-chat-bg', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  if (!AUTO_IMAGE_READY) { res.status(501).json({ error: 'MiniMax 没配置,生成不了' }); return; }
+  const prompt = ((req.body && req.body.prompt) || '').trim() || DEFAULT_CHAT_BG_PROMPT;
+  try {
+    const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/image_generation?GroupId=${MINIMAX_GROUP_ID}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MINIMAX_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MINIMAX_IMAGE_MODEL,
+        prompt,
+        aspect_ratio: '9:16',
+        response_format: 'base64',
+        n: 1,
+      }),
+    });
+    const json = await mmRes.json();
+    const b64 = json.data && json.data.image_base64 && json.data.image_base64[0];
+    if (!b64) {
+      console.error('chat-bg generation error:', JSON.stringify(json.base_resp || json));
+      res.status(502).json({ error: '这次没画出来: ' + JSON.stringify(json.base_resp || json) });
+      return;
+    }
+    const buffer = Buffer.from(b64, 'base64');
+    const path = `chat-bg/${Date.now()}.jpg`;
+    const { error: uploadErr } = await supabase.storage
+      .from(IMAGE_BUCKET)
+      .upload(path, buffer, { contentType: 'image/jpeg' });
+    if (uploadErr) { res.status(500).json({ error: '图片保存失败: ' + uploadErr.message }); return; }
+    res.json({ url: supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message || '生成失败' });
+  }
+});
 
 // Face reference photo for auto-generated pictures — uploaded from the
 // More page, stored in the same public bucket chat images use, URL saved

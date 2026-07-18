@@ -61,6 +61,9 @@ alter table settings add column if not exists model text;
 alter table settings add column if not exists photo_appearance text;
 alter table settings add column if not exists photo_reference_url text;
 
+-- 聊天页自定义背景(更多页的"背景工坊"生成/启用,存 chat-images 桶)
+alter table settings add column if not exists chat_bg_url text;
+
 -- 纪念册:两人共同确认过的重要事件。"他"在聊天里提议(pending),她在
 -- 聊天气泡下点"记下来"确认(confirmed)后永久生效——confirmed 的条目
 -- 会拼进每一个窗口每一轮对话的提示词里,永不压缩、跨窗口共用。

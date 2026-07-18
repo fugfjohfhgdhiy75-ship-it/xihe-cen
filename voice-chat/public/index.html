@@ -230,6 +230,20 @@
           </div>
 
           <div class="card more-card">
+            <label>聊天页背景工坊(用 MiniMax 画,每张按 MiniMax 计费)</label>
+            <textarea id="bgPromptInput" rows="3" placeholder="想要什么画面?留空就用默认的:吉卜力风夏日庭院,蓝天白云"></textarea>
+            <button id="bgGenerateBtn" class="mini-btn">生成一张看看</button>
+            <div id="bgPreviewWrap" class="bg-preview-wrap hidden">
+              <img id="bgPreview" class="bg-preview" alt="候选背景">
+              <div class="bg-preview-actions">
+                <button id="bgApplyBtn" class="mini-btn">就用这张</button>
+                <button id="bgResetBtn" class="mini-btn milestone-no">恢复默认背景</button>
+              </div>
+            </div>
+            <div id="bgStatus" class="doc-status"></div>
+          </div>
+
+          <div class="card more-card">
             <label>他的形象(自动发照片时用)</label>
             <label>外貌描述(每张自动生成的照片都会带上)</label>
             <textarea id="photoAppearance" rows="3" placeholder="比如:二十六岁中国男性,黑色短发,眉眼干净,清瘦挺拔,白衬衫"></textarea>
