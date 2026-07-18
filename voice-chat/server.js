@@ -462,8 +462,35 @@ TEMP: 数字
 // carries titles she's already skipped today via "换一首" so a reroll
 // doesn't loop back to the same suggestion.
 async function pickDailySong(rejectedTitles) {
-  const avoidList = rejectedTitles.length ? `\n今天已经被她划走的歌(不要再推荐这些): ${rejectedTitles.join('、')}` : '';
-  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调)。**理由里不要引用任何歌词**——你凭记忆背的歌词经常是错的,系统会自动配上这首歌的真实歌词,你只说为什么想让她听就行。${avoidList}
+  // Taste memory, learned from her own actions: past days' final songs
+  // (the ones she kept) sketch what she likes; every song she ever
+  // rerolled away is a "not this" signal. Both feed the prompt so
+  // recommendations drift toward her actual taste over time — no login,
+  // no external account, just her in-app behavior.
+  const keptSongs = [];
+  const rejectedAll = [...rejectedTitles];
+  try {
+    const todayStr = shanghaiDateStr();
+    const { data } = await supabase
+      .from('daily_songs')
+      .select('title, artist, rejected, song_date')
+      .order('song_date', { ascending: false })
+      .limit(15);
+    for (const row of data || []) {
+      // Today's row is the one being replaced on a reroll — its title is
+      // already in the rejected list, so it isn't a "kept" signal.
+      if (row.song_date !== todayStr) keptSongs.push(`${row.title}(${row.artist})`);
+      for (const r of row.rejected || []) rejectedAll.push(r);
+    }
+  } catch (err) {
+    console.error('pickDailySong: taste history load failed (continuing without):', err.message);
+  }
+  const uniqueRejected = [...new Set(rejectedAll)].slice(0, 25);
+  const tasteBlock = keptSongs.length
+    ? `\n她最近听过的推荐(这些她都留下了,风格可以参考,但**不要重复推荐这些歌本身**): ${keptSongs.join('、')}`
+    : '';
+  const avoidList = uniqueRejected.length ? `\n她划走过的歌(她当时不想听,不要再推这些,也尽量避开太相似的风格): ${uniqueRejected.join('、')}` : '';
+  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调)。**理由里不要引用任何歌词**——你凭记忆背的歌词经常是错的,系统会自动配上这首歌的真实歌词,你只说为什么想让她听就行。${tasteBlock}${avoidList}
 
 重要:只能选你非常确定真实存在、原唱/歌手信息确定无误的歌——挑那种知名度比较高、能确定是哪个歌手唱的的歌,不要为了应景硬编一首冷门歌或者猜歌手是谁。宁可选一首更大众但你完全确定的歌,也不要选一首你只是"大概觉得"存在的歌。歌名和歌手都要写这首歌本身的原唱信息,不要写翻唱者、不要写合集/专辑名当歌名。
 
