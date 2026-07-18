@@ -1069,7 +1069,12 @@ async function generateMinimaxImage(sessionId, prompt) {
     console.error('auto-image: reading appearance settings failed (using scene only):', err.message);
   }
 
-  const fullPrompt = (appearance ? appearance.trim().replace(/[。,;\s]+$/, '') + '。' : '') + prompt + '。真实手机随手拍照片的质感,自然光,不要摆拍感、不要影棚感。';
+  // Only impose the realistic-phone-photo style when she hasn't written
+  // her own appearance text — hers may specify a completely different
+  // style (e.g. 日系漫画), and a hard-coded realism suffix fights it.
+  const fullPrompt = appearance
+    ? appearance.trim().replace(/[。,;\s]+$/, '') + '。' + prompt
+    : prompt + '。真实手机随手拍照片的质感,自然光。';
   const body = {
     model: MINIMAX_IMAGE_MODEL,
     prompt: fullPrompt,
