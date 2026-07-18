@@ -5,8 +5,17 @@
 ## 项目是什么
 
 岑溪禾的私人 AI 伴侣网页 App("苏晏"),部署在 Render(`https://xihe-cen.onrender.com`),
-仓库 `fugfjohfhgdhiy75-ship-it/xihe-cen`,**开发分支 `claude/yan-yan-bao-bao-is5dgi`**,代码全在 `voice-chat/` 目录。
-Render 连的就是这个分支,push 即自动部署。数据库 Supabase(她手动在 SQL Editor 里跑 `supabase-schema.sql`,该文件全部幂等,可整段重跑)。
+仓库 `fugfjohfhgdhiy75-ship-it/xihe-cen`,**主干分支 `main`**,代码全在 `voice-chat/` 目录。
+Render 连的就是 `main`(她不确定 Render 具体配置,但截至目前所有已合并的功能都在 `main` 上,以此为准)。
+数据库 Supabase(她手动在 SQL Editor 里跑 `supabase-schema.sql`,该文件全部幂等,可整段重跑)。
+
+**重要:每个 session 结束前,必须把改动合并/push 到 `main`,不要留在自己那条临时分支上不管。**
+之前的教训:笔记里写死过一个具体分支名(`claude/yan-yan-bao-bao-is5dgi`),后来那条分支的内容合并进了
+`main`、但笔记没跟着更新,导致下一个 session 在另一条新分支上开工、改完只 push 了自己那条分支,
+线上(Render 连的分支)完全没收到这次修复,她还得再确认一遍"到底哪条分支是真的"。
+**别再重蹈覆辙**:不管当前 session 分配到的是哪条分支名,做完事之后都要合回 `main`,让 `main` 随时是
+"她这个项目目前真正到哪一步"的唯一真相来源——这样不管她后面开几个新 session、每个 session 用的临时
+分支叫什么,只要从 `main` 出发都能看到完整、最新的状态,不用她自己去追踪分支。
 
 ## 用户特征(重要)
 
