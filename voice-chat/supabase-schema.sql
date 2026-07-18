@@ -55,6 +55,12 @@ alter table settings add column if not exists api_base_url text;
 alter table settings add column if not exists api_key text;
 alter table settings add column if not exists model text;
 
+-- 自动发照片的形象设定(更多页可改):photo_appearance 是外貌文字描述,
+-- 会自动拼进每张生成照片的画面描述里;photo_reference_url 是一张参考
+-- 脸照(存 chat-images 桶),配置后每张生成的照片都会保持这张脸。
+alter table settings add column if not exists photo_appearance text;
+alter table settings add column if not exists photo_reference_url text;
+
 -- Diary entries "苏晏" writes unprompted, reflecting on recent conversation
 -- (or just whatever's on her mind if nothing's been said in a while), plus
 -- a mood emoji and a 0-100 relationship "temperature". Not one-per-day —

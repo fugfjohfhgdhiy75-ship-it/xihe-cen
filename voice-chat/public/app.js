@@ -287,6 +287,8 @@ async function loadSettings() {
     apiBaseUrlEl.value = data.api_base_url || '';
     apiKeyInputEl.value = data.api_key || '';
     modelInputEl.value = data.model || '';
+    photoAppearanceEl.value = data.photo_appearance || '';
+    renderPhotoRef(data.photo_reference_url || null);
     renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
@@ -341,6 +343,60 @@ togetherSinceEl.addEventListener('change', () => {
 weatherCityEl.addEventListener('change', () => {
   patchSettings({ weather_city: weatherCityEl.value });
   loadWeather();
+});
+
+// ---- His photo appearance (auto-generated pictures) ----
+
+const photoAppearanceEl = document.getElementById('photoAppearance');
+const photoRefUploadEl = document.getElementById('photoRefUpload');
+const photoRefRowEl = document.getElementById('photoRefRow');
+const photoRefPreviewEl = document.getElementById('photoRefPreview');
+const photoRefRemoveEl = document.getElementById('photoRefRemove');
+const photoRefStatusEl = document.getElementById('photoRefStatus');
+
+function renderPhotoRef(url) {
+  if (url) {
+    photoRefPreviewEl.src = url;
+    photoRefRowEl.classList.remove('hidden');
+  } else {
+    photoRefPreviewEl.removeAttribute('src');
+    photoRefRowEl.classList.add('hidden');
+  }
+}
+
+photoAppearanceEl.addEventListener('change', () => {
+  patchSettings({ photo_appearance: photoAppearanceEl.value });
+});
+
+photoRefUploadEl.addEventListener('change', async () => {
+  const file = photoRefUploadEl.files && photoRefUploadEl.files[0];
+  if (!file) return;
+  photoRefStatusEl.textContent = '上传中...';
+  try {
+    const form = new FormData();
+    form.append('photo', file);
+    const res = await fetch('/api/photo-reference', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '上传失败');
+    renderPhotoRef(data.url);
+    photoRefStatusEl.textContent = '已保存,之后生成的照片会参考这张脸';
+  } catch (err) {
+    photoRefStatusEl.textContent = '上传失败: ' + err.message;
+  } finally {
+    photoRefUploadEl.value = '';
+  }
+});
+
+photoRefRemoveEl.addEventListener('click', async () => {
+  photoRefStatusEl.textContent = '';
+  try {
+    const res = await fetch('/api/photo-reference', { method: 'DELETE' });
+    if (!res.ok) throw new Error('移除失败');
+    renderPhotoRef(null);
+    photoRefStatusEl.textContent = '已移除,之后只按文字描述生成';
+  } catch (err) {
+    photoRefStatusEl.textContent = err.message;
+  }
 });
 
 // ---- Model / API overrides ----

@@ -523,6 +523,21 @@ h1 {
   min-height: 16px;
 }
 
+.photo-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0;
+}
+
+.photo-ref-preview {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
 .more-save-btn {
   align-self: flex-end;
   padding: 9px 18px;

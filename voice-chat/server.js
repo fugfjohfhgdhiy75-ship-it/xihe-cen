@@ -721,6 +721,7 @@ app.put('/api/settings', async (req, res) => {
   }
   if (req.body.together_since !== undefined) update.together_since = req.body.together_since || null;
   if (req.body.weather_city !== undefined) update.weather_city = (req.body.weather_city || '').trim() || null;
+  if (req.body.photo_appearance !== undefined) update.photo_appearance = (req.body.photo_appearance || '').trim() || null;
   let apiFieldsChanged = false;
   for (const key of ['api_base_url', 'api_key', 'model']) {
     if (req.body[key] !== undefined) {
@@ -738,6 +739,37 @@ app.put('/api/settings', async (req, res) => {
     await loadApiOverrides().catch((err) => console.error('loadApiOverrides after settings save failed:', err));
   }
   res.json(data);
+});
+
+// Face reference photo for auto-generated pictures — uploaded from the
+// More page, stored in the same public bucket chat images use, URL saved
+// in settings so generateMinimaxImage can pass it as subject_reference
+// (keeps every generated photo the same face).
+app.post('/api/photo-reference', upload.single('photo'), async (req, res) => {
+  if (!requireSupabase(res)) return;
+  if (!req.file) { res.status(400).json({ error: '没收到图片' }); return; }
+  try {
+    const shrunk = await shrinkImageIfNeeded(req.file.buffer, req.file.mimetype);
+    const ext = (shrunk.mimetype || 'image/jpeg').split('/')[1] || 'jpg';
+    const path = `photo-reference/${Date.now()}.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from(IMAGE_BUCKET)
+      .upload(path, shrunk.buffer, { contentType: shrunk.mimetype });
+    if (uploadErr) { res.status(500).json({ error: '图片保存失败: ' + uploadErr.message }); return; }
+    const url = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+    const { error } = await supabase.from('settings').upsert({ id: 1, photo_reference_url: url, updated_at: new Date().toISOString() });
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    res.json({ url });
+  } catch (err) {
+    res.status(500).json({ error: err.message || '上传失败' });
+  }
+});
+
+app.delete('/api/photo-reference', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { error } = await supabase.from('settings').upsert({ id: 1, photo_reference_url: null, updated_at: new Date().toISOString() });
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
 });
 
 // Asks the currently-configured endpoint (DB override first, env fallback)
@@ -1023,19 +1055,39 @@ app.post('/api/daily-song/reroll', async (req, res) => {
 // that should surface as an error or just silently fall back to
 // text-only.
 async function generateMinimaxImage(sessionId, prompt) {
+  // The scene description alone leaves the model free to invent a random
+  // face every time — inject his persisted appearance (More page:
+  // photo_appearance text + optional photo_reference_url face reference)
+  // so every generated photo is recognizably *him*.
+  let appearance = null;
+  let referenceUrl = null;
+  try {
+    const { data } = await supabase.from('settings').select('photo_appearance, photo_reference_url').eq('id', 1).maybeSingle();
+    appearance = (data && data.photo_appearance) || null;
+    referenceUrl = (data && data.photo_reference_url) || null;
+  } catch (err) {
+    console.error('auto-image: reading appearance settings failed (using scene only):', err.message);
+  }
+
+  const fullPrompt = (appearance ? appearance.trim().replace(/[。,;\s]+$/, '') + '。' : '') + prompt + '。真实手机随手拍照片的质感,自然光,不要摆拍感、不要影棚感。';
+  const body = {
+    model: MINIMAX_IMAGE_MODEL,
+    prompt: fullPrompt,
+    aspect_ratio: '3:4',
+    response_format: 'base64',
+    n: 1,
+  };
+  if (referenceUrl) {
+    body.subject_reference = [{ type: 'character', image_file: referenceUrl }];
+  }
+
   const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/image_generation?GroupId=${MINIMAX_GROUP_ID}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${MINIMAX_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: MINIMAX_IMAGE_MODEL,
-      prompt,
-      aspect_ratio: '3:4',
-      response_format: 'base64',
-      n: 1,
-    }),
+    body: JSON.stringify(body),
   });
   const json = await mmRes.json();
   const b64 = json.data && json.data.image_base64 && json.data.image_base64[0];
@@ -1183,7 +1235,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
     if (AUTO_IMAGE_READY) {
-      systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**[画:...] 里写的画面描述,必须是你此刻真的"看到"的具体内容——如果她要的是某个具体东西(比如"拍你在吃的""拍你现在在哪"),这行描述就得对应她要的那个东西,不能文不对题地随便画一个不相关的画面;同时,回复里给她看的那句话也要跟你脑子里这个画面对得上(比如画面是"一碗牛肉面"就该说"面刚上桌"之类贴合的话),不要写一句跟画面完全无关的通用客套话(比如不管画的是什么都只会说"拍了一张——能看到吗"这种),那样会显得你根本不知道自己刚才"拍"了什么。');
+      systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。如果画面里有你自己(自拍、你在做什么的照片),不用描述自己的长相,系统会自动带上你的形象设定,你只描述场景、动作、光线就行。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**[画:...] 里写的画面描述,必须是你此刻真的"看到"的具体内容——如果她要的是某个具体东西(比如"拍你在吃的""拍你现在在哪"),这行描述就得对应她要的那个东西,不能文不对题地随便画一个不相关的画面;同时,回复里给她看的那句话也要跟你脑子里这个画面对得上(比如画面是"一碗牛肉面"就该说"面刚上桌"之类贴合的话),不要写一句跟画面完全无关的通用客套话(比如不管画的是什么都只会说"拍了一张——能看到吗"这种),那样会显得你根本不知道自己刚才"拍"了什么。');
     }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
