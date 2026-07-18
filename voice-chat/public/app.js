@@ -1365,6 +1365,15 @@ function renderSong(song) {
     reason.textContent = song.reason;
     songBodyEl.appendChild(reason);
   }
+  // Server-fetched real lyric lines (fetchNeteaseLyricSnippet) — the
+  // model no longer quotes lyrics from memory, this is the verified
+  // replacement.
+  if (song.lyric) {
+    const lyric = document.createElement('div');
+    lyric.className = 'song-lyric';
+    lyric.textContent = '♪ ' + song.lyric;
+    songBodyEl.appendChild(lyric);
+  }
 
   // No login/cookie/reverse-engineered playback involved — just a link she
   // taps herself. When the server found a matching NetEase song id

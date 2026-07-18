@@ -463,7 +463,7 @@ TEMP: 数字
 // doesn't loop back to the same suggestion.
 async function pickDailySong(rejectedTitles) {
   const avoidList = rejectedTitles.length ? `\n今天已经被她划走的歌(不要再推荐这些): ${rejectedTitles.join('、')}` : '';
-  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调,可以带引号引用歌词)。${avoidList}
+  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调)。**理由里不要引用任何歌词**——你凭记忆背的歌词经常是错的,系统会自动配上这首歌的真实歌词,你只说为什么想让她听就行。${avoidList}
 
 重要:只能选你非常确定真实存在、原唱/歌手信息确定无误的歌——挑那种知名度比较高、能确定是哪个歌手唱的的歌,不要为了应景硬编一首冷门歌或者猜歌手是谁。宁可选一首更大众但你完全确定的歌,也不要选一首你只是"大概觉得"存在的歌。歌名和歌手都要写这首歌本身的原唱信息,不要写翻唱者、不要写合集/专辑名当歌名。
 
@@ -489,6 +489,7 @@ REASON: 推荐理由`;
   if (!parsed.title || !parsed.artist) throw new Error('模型没有返回有效的歌曲信息');
 
   parsed.neteaseId = await lookupNeteaseSongId(parsed.title, parsed.artist);
+  parsed.lyric = parsed.neteaseId ? await fetchNeteaseLyricSnippet(parsed.neteaseId) : null;
   return parsed;
 }
 
@@ -610,6 +611,42 @@ async function lookupNeteaseSongId(title, artist) {
     return match ? String(match.id) : null;
   } catch (err) {
     console.error('lookupNeteaseSongId error:', err.message);
+    return null;
+  }
+}
+
+// Real lyric lines for the matched song — same legacy read-only endpoint
+// family as the search lookup above (no login, no decryption). The model
+// used to quote lyrics from memory in the reason and routinely
+// misremembered them; showing a server-fetched snippet instead makes the
+// lyrics on the card actually real. Returns null on any failure — the
+// card just shows no lyric quote then.
+async function fetchNeteaseLyricSnippet(songId) {
+  try {
+    const res = await fetch(`https://music.163.com/api/song/lyric?id=${songId}&lv=1&tv=-1`, {
+      headers: {
+        Referer: 'https://music.163.com/',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+      },
+    });
+    if (!res.ok) return null;
+    const bodyText = await res.text();
+    let json;
+    try { json = JSON.parse(bodyText); } catch { return null; }
+    const lrc = json && json.lrc && json.lrc.lyric;
+    if (!lrc) return null;
+    const lines = lrc
+      .split('\n')
+      .map((l) => l.replace(/\[[^\]]*\]/g, '').trim())
+      // Credits ("作词 : xx") and section tags aren't lyrics.
+      .filter((l) => l && !/[::]/.test(l) && l.length >= 4 && l.length <= 40);
+    if (lines.length < 2) return null;
+    // A verse from ~a third of the way in usually lands on real singing
+    // rather than an intro; two consecutive lines read like a quote.
+    const start = Math.min(Math.floor(lines.length / 3), lines.length - 2);
+    return lines[start] + ' / ' + lines[start + 1];
+  } catch (err) {
+    console.error('fetchNeteaseLyricSnippet error:', err.message);
     return null;
   }
 }
@@ -1043,7 +1080,7 @@ app.get('/api/daily-song', async (req, res) => {
     const song = await pickDailySong([]);
     const { data: inserted, error } = await supabase
       .from('daily_songs')
-      .insert({ song_date: dateStr, title: song.title, artist: song.artist, reason: song.reason || '', netease_id: song.neteaseId })
+      .insert({ song_date: dateStr, title: song.title, artist: song.artist, reason: song.reason || '', netease_id: song.neteaseId, lyric: song.lyric || null })
       .select()
       .single();
     if (error) {
@@ -1078,6 +1115,7 @@ app.post('/api/daily-song/reroll', async (req, res) => {
       artist: song.artist,
       reason: song.reason || '',
       netease_id: song.neteaseId,
+      lyric: song.lyric || null,
       rejected,
     };
     const { data, error } = await supabase.from('daily_songs').upsert(update, { onConflict: 'song_date' }).select().single();

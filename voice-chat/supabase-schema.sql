@@ -114,6 +114,8 @@ create table if not exists daily_songs (
 -- on a search results page. Null when no confident match was found — the
 -- frontend falls back to a plain search link in that case.
 alter table daily_songs add column if not exists netease_id text;
+-- 服务器从网易云拿到的真实歌词摘录(两行),不再让模型凭记忆背歌词
+alter table daily_songs add column if not exists lyric text;
 
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
