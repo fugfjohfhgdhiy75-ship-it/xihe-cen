@@ -36,20 +36,27 @@
 
 ## 环境变量(Render 里配)
 
-`ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / MODEL`(可被网页设置覆盖)、`SUPABASE_URL / SUPABASE_KEY`、`SITE_PASSWORD`(整站密码锁)、`GEMINI_API_KEY`(画图+通话语音识别,她已配)、`ELEVENLABS_*`(TTS,**她额度已用完**,会自动落到 MiniMax)、`MINIMAX_*`(TTS 兜底)、`DEEPSEEK_API_KEY`(记忆压缩省钱用)。
+`ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / MODEL`(可被网页设置覆盖)、`SUPABASE_URL / SUPABASE_KEY`、`SITE_PASSWORD`(整站密码锁)、`GEMINI_API_KEY`(**现在只用于通话语音识别**,画图已不用它,她已配)、`ELEVENLABS_*`(TTS,**她额度已用完**,会自动落到 MiniMax)、`MINIMAX_*`(TTS 兜底 + **自动画图**,`MINIMAX_API_KEY`/`MINIMAX_GROUP_ID`两个功能共用)、`DEEPSEEK_API_KEY`(记忆压缩省钱用)。
 
 ## 当前未解决 / 待验证(按优先级)
 
-1. **聊天自动发图未打通**:模型嘴上说"发过去了"但没图。排查顺序:①Render 环境变量名是否精确 `GEMINI_API_KEY`;②Render Logs 搜 `auto image generation failed`(有=Gemini 报错,常见:key 无效/地区限制/模型名);③日志里啥都没有=模型没输出 `[画:...]` 标记(提示词在 `/api/chat` 里 `GEMINI_READY` 分支),或者 10 分钟冷却期内;④`GEMINI_IMAGE_MODEL` 默认 `gemini-2.5-flash-image`,如报模型不存在可试 `gemini-2.0-flash-exp-image-generation` 或查最新可用名。
-2. **豆包输入法语音黑屏**:系统级问题(第三方输入法语音面板在 standalone PWA 里崩渲染进程),网页代码修不了。已绕过:通话功能用自家录音;打字语音输入建议她用苹果自带听写。别再试图从代码层面修。
-3. **网易云内嵌播放:已结案,别再碰**。诊断端点 `/api/netease-test` 显示接口对我们返回加密 payload(`result` 是密文),解密=逆向,她明确不走。歌曲卡片最终形态就是推荐+跳转链接。
+1. **豆包输入法语音黑屏**:系统级问题(第三方输入法语音面板在 standalone PWA 里崩渲染进程),网页代码修不了。已绕过:通话功能用自家录音;打字语音输入建议她用苹果自带听写。别再试图从代码层面修。
+2. **网易云内嵌播放:已结案,别再碰**。诊断端点 `/api/netease-test` 显示接口对我们返回加密 payload(`result` 是密文),解密=逆向,她明确不走。歌曲卡片最终形态就是推荐+跳转链接。
+
+## 已解决:聊天自动发图(2026-07-18,别再重新排查这条)
+
+之前"模型嘴上说'发过去了'但没图"排查了很久,分两层原因,**都已修完,画图现在走 MiniMax,不再用 Gemini**:
+1. 调 Gemini 图片接口时请求体漏了 `generationConfig.responseModalities: ['TEXT','IMAGE']`,导致它默默只回文字、不报图片、也不报错——这层已经不重要了,因为整个 Gemini 画图链路都拆掉了,见下一条。
+2. 修完①之后测试发现 Gemini 画图报 `Quota exceeded ... limit: 0`——换了新 Google Cloud 项目、换了新 key 结果一样,说明 `gemini-2.5-flash-image` 这个模型**免费额度目前就是 0**,必须开 Google Cloud 计费(要绑国际信用卡)才能用。她没有国际卡,不想开计费。
+   **于是把自动画图整条链路从 Gemini 换成了 MiniMax**(`generateMinimaxImage`,复用她已经在用、已经充值的 `MINIMAX_API_KEY`/`MINIMAX_GROUP_ID`,不需要新账号、不需要国际卡)。`GEMINI_API_KEY` 现在只用于通话语音识别(`transcribeWithGemini`),跟画图无关了。
+   **如果以后又出现"发图变文字"**:别再往 Gemini 方向排查,先查 Render Logs 搜 `auto image generation failed`,看 MiniMax 那边报的 `base_resp` 错误(常见:余额不足、`MINIMAX_API_KEY`/`MINIMAX_GROUP_ID` 没配对、内容审核拦截)。
 
 ## Backlog(她要过、还没做的)
 
-- **表情包**:方案已定——用 Gemini 一次性批量生成 20-30 张"晏晏"表情存 Supabase Storage,聊天按情绪标记(类似 `[贴:吃醋]`)选发,一次性成本之后免费。
-- **吉卜力风格 UI 整套重做**:等功能稳定后单独开一轮;插画素材用她的 Gemini key 生成。
+- **表情包**:方案已定——一次性批量生成 20-30 张"晏晏"表情存 Supabase Storage,聊天按情绪标记(类似 `[贴:吃醋]`)选发,一次性成本之后免费。**画图用 MiniMax,不是 Gemini**(见上面"已解决"那条,Gemini 画图免费额度已经是 0)。
+- **吉卜力风格 UI 整套重做**:等功能稳定后单独开一轮;插画素材用 MiniMax 生成,不用 Gemini。
 - **首页氛围视频**:用免费素材库(Coverr/Pexels)本地循环播,按早中晚切换。**不要用 Veo 生成视频**(成本已跟她算过,否决)。
-- **首页"他现在"状态卡 AI 版**(现在是本地词库轮换,零成本;可选升级为 Gemini 配图)。
+- **首页"他现在"状态卡 AI 版**(现在是本地词库轮换,零成本;可选升级为 MiniMax 配图)。
 - **备忘录入口**(密码锁已上线,她说"确认安全了再考虑")。
 - **真·关键词/向量检索记忆库**(现在是两层压缩,不是 RAG,当时明确说了是折中)。
 

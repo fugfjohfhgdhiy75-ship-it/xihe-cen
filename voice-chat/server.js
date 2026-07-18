@@ -123,6 +123,10 @@ const MINIMAX_MODEL = process.env.MINIMAX_MODEL || 'speech-02-turbo';
 const MINIMAX_EMOTION = process.env.MINIMAX_EMOTION || 'happy';
 const MINIMAX_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID && MINIMAX_VOICE_ID);
 const MINIMAX_CLONE_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID);
+const MINIMAX_IMAGE_MODEL = process.env.MINIMAX_IMAGE_MODEL || 'image-01';
+// Auto image generation only needs the same key/group the TTS and voice
+// clone features already use — no separate voice id required.
+const AUTO_IMAGE_READY = Boolean(MINIMAX_API_KEY && MINIMAX_GROUP_ID);
 const CLONE_PASSCODE = process.env.CLONE_PASSCODE;
 
 // ElevenLabs is a direct (non-relay) official API — no billing workaround
@@ -145,12 +149,13 @@ const ELEVENLABS_STYLE = Number(process.env.ELEVENLABS_STYLE || 0.88);
 const ELEVENLABS_SPEED = Number(process.env.ELEVENLABS_SPEED || 1.08);
 const ELEVENLABS_READY = Boolean(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
 
-// Claude itself can't generate images, so "让他画一张" is a separate,
-// manually-triggered call to Gemini's image model. Direct official API,
-// no relay involved.
+// Gemini is used for voice-call speech-to-text only now (see
+// transcribeWithGemini below) — auto image generation moved to MiniMax
+// (AUTO_IMAGE_READY above), since Gemini's image model currently has a
+// hard 0 free-tier quota and getting it working needs Google Cloud
+// billing set up, which isn't an option here.
 const GEMINI_API_HOST = process.env.GEMINI_API_HOST || 'https://generativelanguage.googleapis.com';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 const GEMINI_READY = Boolean(GEMINI_API_KEY);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -948,56 +953,49 @@ app.post('/api/daily-song/reroll', async (req, res) => {
   }
 });
 
-// Manually triggered ("让他画一张") — Claude can't generate images, so
-// this is a separate call to Gemini's image model, not part of the normal
-// chat turn. The result gets saved as a normal assistant message with an
-// image attached, reusing the same messages.image_url column real image
-// uploads use, so it shows up in history/reload exactly like any other
-// picture.
-// Shared by the manual "让他画一张" button and the automatic in-chat
-// marker below. Throws on any failure (network, Gemini refusal, storage
-// upload) — callers decide whether that should surface as an error or
-// just silently fall back to text-only.
-async function generateGeminiImage(sessionId, prompt) {
-  const geminiRes = await fetch(
-    `${GEMINI_API_HOST}/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // responseModalities must be spelled out — without it this model
-      // silently answers with text only (no inlineData image part at all),
-      // which read as "she said she sent a photo but only text arrived"
-      // even though nothing here errors.
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-      }),
-    }
-  );
-  const geminiJson = await geminiRes.json();
-  if (!geminiRes.ok) {
-    throw new Error((geminiJson.error && geminiJson.error.message) || 'Gemini 请求失败');
-  }
-  const parts = (geminiJson.candidates && geminiJson.candidates[0] && geminiJson.candidates[0].content && geminiJson.candidates[0].content.parts) || [];
-  const imagePart = parts.find((p) => p.inlineData && p.inlineData.data);
-  if (!imagePart) {
-    // Most likely cause: Gemini's safety filters declined the prompt
-    // rather than a hard error — surface that distinctly from a plain
-    // network/API failure so it doesn't read as "broken."
-    throw new Error('这次没画出来(可能是内容被拦下了)');
+// Automatic in-chat image generation, triggered by the [画:...] marker
+// below. Uses MiniMax (same account/billing as TTS — RMB top-up, no
+// foreign card) instead of Gemini: Gemini's image model currently has a
+// hard 0 free-tier quota project-wide, and setting up Google Cloud
+// billing wasn't an option here. The result gets saved as a normal
+// assistant message with an image attached, reusing the same
+// messages.image_url column real image uploads use, so it shows up in
+// history/reload exactly like any other picture. Throws on any failure
+// (network, content filter, storage upload) — the caller decides whether
+// that should surface as an error or just silently fall back to
+// text-only.
+async function generateMinimaxImage(sessionId, prompt) {
+  const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/image_generation?GroupId=${MINIMAX_GROUP_ID}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${MINIMAX_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MINIMAX_IMAGE_MODEL,
+      prompt,
+      aspect_ratio: '3:4',
+      response_format: 'base64',
+      n: 1,
+    }),
+  });
+  const json = await mmRes.json();
+  const b64 = json.data && json.data.image_base64 && json.data.image_base64[0];
+  if (!b64) {
+    console.error('MiniMax image generation error:', JSON.stringify(json.base_resp || json));
+    throw new Error('这次没画出来: ' + JSON.stringify(json.base_resp || json));
   }
 
-  const buffer = Buffer.from(imagePart.inlineData.data, 'base64');
-  const ext = (imagePart.inlineData.mimeType || 'image/png').split('/')[1] || 'png';
-  const path = `${sessionId}/gemini-${Date.now()}.${ext}`;
+  const buffer = Buffer.from(b64, 'base64');
+  const path = `${sessionId}/minimax-${Date.now()}.jpg`;
   const { error: uploadErr } = await supabase.storage
     .from(IMAGE_BUCKET)
-    .upload(path, buffer, { contentType: imagePart.inlineData.mimeType || 'image/png' });
+    .upload(path, buffer, { contentType: 'image/jpeg' });
   if (uploadErr) throw new Error('图片保存失败: ' + uploadErr.message);
   return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-// Spam guard for the automatic in-chat image marker below — Gemini calls
+// Spam guard for the automatic in-chat image marker below — MiniMax calls
 // cost real money per image, and this fires without her explicitly asking
 // for it each time, so it needs its own independent throttle.
 const AUTO_IMAGE_COOLDOWN_MS = 10 * 60 * 1000;
@@ -1087,7 +1085,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
-    if (GEMINI_READY) {
+    if (AUTO_IMAGE_READY) {
       systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**');
     }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
@@ -1123,16 +1121,16 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // Strip the [画:描述] marker (see the system prompt above) before it
     // ever reaches her — this is a signal for the server, not something
     // she should see as literal bracket text. If found, try to actually
-    // generate the image; on any failure (rate-limited, Gemini declined,
+    // generate the image; on any failure (rate-limited, content filter,
     // network) just fall back to the text reply alone rather than
     // failing the whole turn over a picture that didn't work out.
     let imageUrl = null;
     const markerMatch = text.match(/\[画[:：]\s*([^\]]+)\]/);
     if (markerMatch) {
       text = (text.slice(0, markerMatch.index) + text.slice(markerMatch.index + markerMatch[0].length)).trim();
-      if (GEMINI_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
+      if (AUTO_IMAGE_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
         try {
-          imageUrl = await generateGeminiImage(sessionId, markerMatch[1].trim());
+          imageUrl = await generateMinimaxImage(sessionId, markerMatch[1].trim());
           lastAutoImageAt = Date.now();
         } catch (err) {
           console.error('auto image generation failed:', err.message);
