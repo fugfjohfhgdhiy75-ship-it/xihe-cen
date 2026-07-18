@@ -860,6 +860,7 @@ async function regenerateReplyAfterEdit(messageId) {
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
   let gotImage = false;
+  let imageNote = null;
   try {
     const form = new FormData();
     form.append('sessionId', currentSessionId);
@@ -886,13 +887,14 @@ async function regenerateReplyAfterEdit(messageId) {
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
+        if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
       }
     }
 
     if (fullText) {
       attachAudioLazy(assistantBubble, fullText);
-      statusText.textContent = '';
+      statusText.textContent = imageNote || '';
       const s = sessions.find((x) => x.id === currentSessionId);
       if (s) {
         s.updated_at = new Date().toISOString();
@@ -1059,6 +1061,7 @@ async function sendMessage(rawText) {
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
   let gotImage = false;
+  let imageNote = null;
 
   try {
     const form = new FormData();
@@ -1091,13 +1094,14 @@ async function sendMessage(rawText) {
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
+        if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
       }
     }
 
     if (fullText) {
       attachAudioLazy(assistantBubble, fullText);
-      statusText.textContent = '';
+      statusText.textContent = imageNote || '';
       const s = sessions.find((x) => x.id === currentSessionId);
       if (s) {
         s.updated_at = new Date().toISOString();

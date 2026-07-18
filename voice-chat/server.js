@@ -1126,11 +1126,14 @@ async function inferPhotoDescription(userMessage, replyText) {
     const resp = await createMessageWithRetry({
       model: currentModel(),
       max_tokens: 120,
-      system: '你在帮一个聊天机器人补一个内部判断:她刚才明确要"他"发一张照片,但"他"的回复里没有标出具体要拍的画面。根据她的要求和"他"这句回复,判断这张照片该拍什么。只输出一句具体的中文画面描述,不要加任何前后缀、引号或解释;如果这句回复其实跟拍照无关(比如在聊别的事、道歉、解释故障),只输出:不发',
+      system: '你在帮一个聊天机器人补一个内部判断:她刚才明确要"他"发一张照片,但"他"的回复里没有标出具体要拍的画面。根据她的要求和"他"这句回复,判断这张照片该拍什么。只输出一句具体的中文画面描述(50字以内,只写场景/动作/光线,不用描述人的长相),不要加任何前后缀、引号或解释;如果这句回复其实跟拍照无关(比如在聊别的事、道歉、解释故障),只输出:不发',
       messages: [{ role: 'user', content: `她说:${userMessage}\n他回复:${replyText}` }],
     }, 1);
-    const out = (resp.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-    if (!out || out === '不发' || out.length > 80) return null;
+    const out = (resp.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim().replace(/^["'「『]+|["'」』]+$/g, '');
+    if (!out || out.startsWith('不发') || out.length > 200) {
+      console.log('auto-image: fallback rejected raw output:', JSON.stringify(out.slice(0, 220)));
+      return null;
+    }
     return out;
   } catch (err) {
     console.error('inferPhotoDescription failed:', err.message);
@@ -1272,7 +1275,15 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // she should see as literal bracket text.
     let imagePrompt = null;
     const markerMatch = text.match(/\[画[:：]\s*([^\]]+)\]/);
-    const explicitAsk = EXPLICIT_PHOTO_REQUEST_RE.test(message);
+    // The "did she explicitly ask for a photo" check must look at the last
+    // user message in *history*, not just req.body.message — the
+    // regenerate/"重新回答" flow sends no message text at all, which
+    // silently disabled the fallback exactly when she was retrying a
+    // failed photo.
+    const lastUserEntry = [...(history || [])].reverse().find((m) => m.role === 'user' && typeof m.content === 'string');
+    const askText = message.trim() || (lastUserEntry && lastUserEntry.content) || '';
+    const explicitAsk = EXPLICIT_PHOTO_REQUEST_RE.test(askText);
+    let imageFailReason = null;
     if (markerMatch) {
       text = (text.slice(0, markerMatch.index) + text.slice(markerMatch.index + markerMatch[0].length)).trim();
       imagePrompt = markerMatch[1].trim();
@@ -1285,8 +1296,9 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       // giving up; only fires on this confirmed-miss case; the common
       // path above where the model got it right doesn't pay this cost.
       console.log('auto-image: explicit photo request but NO marker — asking a fallback call what to picture');
-      imagePrompt = await inferPhotoDescription(message, text);
+      imagePrompt = await inferPhotoDescription(askText, text);
       console.log('auto-image: fallback description =', imagePrompt === null ? '(判定不发/失败)' : imagePrompt);
+      if (imagePrompt === null) imageFailReason = '模型这轮没决定拍什么(兜底判断也没通过)';
     } else {
       console.log('auto-image: no marker, message not an explicit photo request — skipping');
     }
@@ -1303,6 +1315,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       const cooldownRemaining = AUTO_IMAGE_COOLDOWN_MS - (Date.now() - lastAutoImageAt);
       if (!AUTO_IMAGE_READY) {
         console.log('auto-image: skipped — MINIMAX_API_KEY/MINIMAX_GROUP_ID not configured');
+        imageFailReason = 'MiniMax 没配置';
       } else if (!explicitAsk && cooldownRemaining > 0) {
         console.log(`auto-image: skipped — cooldown, ${Math.ceil(cooldownRemaining / 1000)}s remaining`);
       } else {
@@ -1312,8 +1325,16 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
           console.log('auto-image: generated OK:', imageUrl);
         } catch (err) {
           console.error('auto image generation failed:', err.message);
+          imageFailReason = err.message;
         }
       }
+    }
+    // When she explicitly asked for a photo and none is coming, say why in
+    // a small status line instead of leaving her staring at a text-only
+    // reply wondering what silently went wrong this time. Kept out of the
+    // reply bubble itself so the in-fiction voice stays clean.
+    if (explicitAsk && !imageUrl && imageFailReason) {
+      send({ imageNote: '📷 这次照片没发出来: ' + imageFailReason });
     }
 
     if (!text && !imageUrl) {
