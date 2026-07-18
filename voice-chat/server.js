@@ -964,7 +964,14 @@ async function generateGeminiImage(sessionId, prompt) {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      // responseModalities must be spelled out — without it this model
+      // silently answers with text only (no inlineData image part at all),
+      // which read as "she said she sent a photo but only text arrived"
+      // even though nothing here errors.
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+      }),
     }
   );
   const geminiJson = await geminiRes.json();
@@ -1081,7 +1088,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
     if (GEMINI_READY) {
-      systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。');
+      systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**');
     }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
