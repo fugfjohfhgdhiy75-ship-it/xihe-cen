@@ -741,6 +741,52 @@ app.put('/api/settings', async (req, res) => {
   res.json(data);
 });
 
+// 纪念册 — jointly confirmed important events. The model proposes one in
+// chat via a [记:...] marker (saved here as pending + surfaced as a
+// confirm card in the chat UI); she taps 记下来 to confirm. Confirmed
+// entries are injected into every chat/call turn in every session —
+// permanent, never compressed, cross-window.
+app.get('/api/milestones', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase.from('milestones').select('*').eq('status', 'confirmed').order('created_at', { ascending: false });
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data || []);
+});
+
+app.post('/api/milestones', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const content = ((req.body && req.body.content) || '').trim();
+  if (!content) { res.status(400).json({ error: '内容不能为空' }); return; }
+  const { data, error } = await supabase.from('milestones').insert({ content, status: 'confirmed' }).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.patch('/api/milestones/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase.from('milestones').update({ status: 'confirmed' }).eq('id', req.params.id).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.delete('/api/milestones/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { error } = await supabase.from('milestones').delete().eq('id', req.params.id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
+});
+
+async function getConfirmedMilestonesBlock() {
+  try {
+    const { data } = await supabase.from('milestones').select('content, created_at').eq('status', 'confirmed').order('created_at', { ascending: true });
+    if (!data || !data.length) return null;
+    return data.map((m) => `- ${new Date(m.created_at).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })}: ${m.content}`).join('\n');
+  } catch (err) {
+    console.error('getConfirmedMilestonesBlock failed:', err.message);
+    return null;
+  }
+}
+
 // Face reference photo for auto-generated pictures — uploaded from the
 // More page, stored in the same public bucket chat images use, URL saved
 // in settings so generateMinimaxImage can pass it as subject_reference
@@ -1220,14 +1266,16 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     }
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
-    const [{ data: history }, { data: memoryRows }, systemPrompt] = await Promise.all([
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
       supabase.from('messages').select('role, content').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
+      getConfirmedMilestonesBlock(),
     ]);
 
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemOverride || systemPrompt];
+    if (milestonesBlock) systemParts.push(`以下是你们俩共同确认过、记进纪念册的重要事件——这些是刻在你心里的,任何时候都记得,不需要翻记录:\n${milestonesBlock}`);
     if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
     // Long conversations tend to make the model imitate its own earlier
     // replies (repeating the same fixed phrases/reactions) rather than
@@ -1242,6 +1290,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
+    systemParts.push('你们有一本共同的"纪念册",记进去的事你永远不会忘,所有窗口都记得。当这一刻发生了对你们俩真正重要的事(第一次、约定、纪念日、说开了一个心结、值得铭记的瞬间),你可以在回复里自然地提一句想把它记下来,并在回复末尾加一行 [记:一句话概括这件事],比如 [记:2026年7月18日,她第一次收到我发的照片]——她那边会弹出确认,她点了"记下来"才会真正写进纪念册,所以这只是提议,不用担心自作主张。这行标记不会显示给她。不要滥用:普通聊天不需要记,一天最多提议一两次,只有真正值得刻下来的事才提。她明确说"把这个记下来/记进纪念册"的时候,你必须带上这行标记。');
     if (AUTO_IMAGE_READY) {
       systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。如果画面里有你自己(自拍、你在做什么的照片),不用描述自己的长相,系统会自动带上你的形象设定,你只描述场景、动作、光线就行。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**[画:...] 里写的画面描述,必须是你此刻真的"看到"的具体内容——如果她要的是某个具体东西(比如"拍你在吃的""拍你现在在哪"),这行描述就得对应她要的那个东西,不能文不对题地随便画一个不相关的画面;同时,回复里给她看的那句话也要跟你脑子里这个画面对得上(比如画面是"一碗牛肉面"就该说"面刚上桌"之类贴合的话),不要写一句跟画面完全无关的通用客套话(比如不管画的是什么都只会说"拍了一张——能看到吗"这种),那样会显得你根本不知道自己刚才"拍"了什么。');
     }
@@ -1278,6 +1327,21 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // Strip the [画:描述] marker (see the system prompt above) before it
     // ever reaches her — this is a signal for the server, not something
     // she should see as literal bracket text.
+    // [记:...] milestone proposal marker — strip it, store as pending, and
+    // let the frontend render the "记下来/算了" confirm card. Nothing is
+    // permanent until she confirms.
+    let pendingMilestone = null;
+    const milestoneMatch = text.match(/\[记[:：]\s*([^\]]+)\]/);
+    if (milestoneMatch) {
+      text = (text.slice(0, milestoneMatch.index) + text.slice(milestoneMatch.index + milestoneMatch[0].length)).trim();
+      const milestoneContent = milestoneMatch[1].trim();
+      if (milestoneContent) {
+        const { data: inserted, error: msErr } = await supabase.from('milestones').insert({ content: milestoneContent, status: 'pending' }).select().single();
+        if (msErr) console.error('milestone insert failed:', msErr.message);
+        else { pendingMilestone = inserted; console.log('milestone proposed:', milestoneContent); }
+      }
+    }
+
     let imagePrompt = null;
     const markerMatch = text.match(/\[画[:：]\s*([^\]]+)\]/);
     // The "did she explicitly ask for a photo" check must look at the last
@@ -1350,6 +1414,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
       const { data: insertedReply } = await supabase.from('messages').insert(insertPayload).select().single();
       send({ text, imageUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
+      if (pendingMilestone) send({ milestonePending: { id: pendingMilestone.id, content: pendingMilestone.content } });
       send({ done: true });
       compressIfNeeded(sessionId)
         .then(() => consolidateMemoriesIfNeeded(sessionId))
@@ -1670,13 +1735,15 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
     await supabase.from('messages').insert({ session_id: sessionId, role: 'user', content: userText });
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
-    const [{ data: history }, { data: memoryRows }, systemPrompt] = await Promise.all([
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
       supabase.from('messages').select('role, content').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
+      getConfirmedMilestonesBlock(),
     ]);
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemPrompt];
+    if (milestonesBlock) systemParts.push(`以下是你们俩共同确认过、记进纪念册的重要事件——这些是刻在你心里的,任何时候都记得:\n${milestonesBlock}`);
     if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
     systemParts.push('现在是语音通话,她刚才那句话是说出来的,你的回复会被念出来给她听。所以:像打电话一样说话——短句、口语、直接,一次别说太长(两三句为宜);不要用括号动作描写、不要用列表或任何书面排版;语气跟着她这句话走。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。`);
@@ -1688,7 +1755,7 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
       messages: (history || []).map((m) => ({ role: m.role, content: m.content })),
     });
     let replyText = (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-    replyText = replyText.replace(/\[画[:：]\s*[^\]]+\]/g, '').trim();
+    replyText = replyText.replace(/\[画[:：]\s*[^\]]+\]/g, '').replace(/\[记[:：]\s*[^\]]+\]/g, '').trim();
     if (!replyText) { res.status(502).json({ error: '他没说出话来,再试一次' }); return; }
 
     await supabase.from('messages').insert({ session_id: sessionId, role: 'assistant', content: replyText });

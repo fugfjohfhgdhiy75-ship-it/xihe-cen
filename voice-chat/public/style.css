@@ -538,6 +538,75 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
+/* 纪念册 confirm card in chat + list on Home */
+.milestone-confirm {
+  align-self: center;
+  max-width: 88%;
+  margin: 6px 0;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 13px;
+}
+
+.milestone-confirm-text {
+  margin-bottom: 8px;
+}
+
+.milestone-confirm-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.milestone-no {
+  opacity: 0.7;
+}
+
+.milestone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.milestone-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.milestone-date {
+  flex-shrink: 0;
+  opacity: 0.65;
+  font-size: 12px;
+}
+
+.milestone-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.milestone-del {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.milestone-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.milestone-add-row .more-text-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .more-save-btn {
   align-self: flex-end;
   padding: 9px 18px;

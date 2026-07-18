@@ -742,6 +742,47 @@ function appendBubble(role, text, imageUrls, id, createdAt) {
   return bubble;
 }
 
+// Inline confirm card for a milestone he proposed ([记:...] marker) —
+// nothing is saved permanently until she taps 记下来 here.
+function showMilestoneConfirm(pending) {
+  const card = document.createElement('div');
+  card.className = 'milestone-confirm';
+  const label = document.createElement('div');
+  label.className = 'milestone-confirm-text';
+  label.textContent = '他想把这件事记进纪念册:「' + pending.content + '」';
+  const row = document.createElement('div');
+  row.className = 'milestone-confirm-actions';
+  const yesBtn = document.createElement('button');
+  yesBtn.className = 'mini-btn';
+  yesBtn.textContent = '记下来';
+  const noBtn = document.createElement('button');
+  noBtn.className = 'mini-btn milestone-no';
+  noBtn.textContent = '算了';
+  yesBtn.addEventListener('click', async () => {
+    yesBtn.disabled = true; noBtn.disabled = true;
+    try {
+      const res = await fetch('/api/milestones/' + pending.id, { method: 'PATCH' });
+      if (!res.ok) throw new Error('保存失败');
+      label.textContent = '✓ 已记进纪念册:「' + pending.content + '」';
+      row.remove();
+    } catch (err) {
+      yesBtn.disabled = false; noBtn.disabled = false;
+      statusText.textContent = '记入纪念册失败: ' + err.message;
+    }
+  });
+  noBtn.addEventListener('click', async () => {
+    yesBtn.disabled = true; noBtn.disabled = true;
+    try { await fetch('/api/milestones/' + pending.id, { method: 'DELETE' }); } catch {}
+    card.remove();
+  });
+  row.appendChild(yesBtn);
+  row.appendChild(noBtn);
+  card.appendChild(label);
+  card.appendChild(row);
+  transcriptEl.appendChild(card);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
 function attachImageToBubble(bubble, url) {
   if (!url) return;
   const grid = document.createElement('div');
@@ -888,6 +929,7 @@ async function regenerateReplyAfterEdit(messageId) {
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
         if (payload.imageNote) imageNote = payload.imageNote;
+        if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
       }
     }
@@ -1095,6 +1137,7 @@ async function sendMessage(rawText) {
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
         if (payload.imageNote) imageNote = payload.imageNote;
+        if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
       }
     }
@@ -1412,7 +1455,74 @@ async function loadHome() {
   loadSong();
   loadTemperature();
   loadWeather();
+  loadMilestones();
 }
+
+// ---- 纪念册 (jointly confirmed milestones) ----
+
+const milestoneListEl = document.getElementById('milestoneList');
+const milestoneInputEl = document.getElementById('milestoneInput');
+const milestoneAddBtn = document.getElementById('milestoneAddBtn');
+
+async function loadMilestones() {
+  try {
+    const res = await fetch('/api/milestones');
+    const items = await res.json();
+    if (!res.ok) throw new Error(items.error || '加载失败');
+    milestoneListEl.innerHTML = '';
+    if (!items.length) {
+      milestoneListEl.innerHTML = '<div class="song-loading">还没有记下的事</div>';
+      return;
+    }
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'milestone-item';
+      const date = document.createElement('span');
+      date.className = 'milestone-date';
+      date.textContent = new Date(item.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+      const content = document.createElement('span');
+      content.className = 'milestone-content';
+      content.textContent = item.content;
+      const del = document.createElement('button');
+      del.className = 'mini-icon-btn milestone-del';
+      del.title = '删除';
+      del.textContent = '✕';
+      del.addEventListener('click', async () => {
+        if (!confirm('把这条从纪念册里删掉?他以后就不记得这件事了。')) return;
+        try {
+          const r = await fetch('/api/milestones/' + item.id, { method: 'DELETE' });
+          if (r.ok) row.remove();
+        } catch {}
+      });
+      row.appendChild(date);
+      row.appendChild(content);
+      row.appendChild(del);
+      milestoneListEl.appendChild(row);
+    }
+  } catch (err) {
+    milestoneListEl.innerHTML = '<div class="song-loading">纪念册加载失败: ' + err.message + '</div>';
+  }
+}
+
+milestoneAddBtn.addEventListener('click', async () => {
+  const content = milestoneInputEl.value.trim();
+  if (!content) return;
+  milestoneAddBtn.disabled = true;
+  try {
+    const res = await fetch('/api/milestones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || '保存失败');
+    milestoneInputEl.value = '';
+    loadMilestones();
+  } catch (err) {
+    statusText.textContent = '记入纪念册失败: ' + err.message;
+  } finally {
+    milestoneAddBtn.disabled = false;
+  }
+});
 
 // ---- Diary ----
 
