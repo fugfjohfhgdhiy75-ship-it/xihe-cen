@@ -123,6 +123,7 @@ body::before {
 }
 
 .views-wrap {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -138,6 +139,28 @@ body::before {
 
 .view.active {
   display: flex;
+}
+
+/* Home is the one view that can have a live NetEase player iframe inside
+   it (see #songBody). display:none suspends embedded audio/iframes in
+   Safari, which is exactly what made the song stop the moment she left
+   this tab — so instead of removing it from the render tree like the
+   other views, keep it "displayed" but invisible and out of the way when
+   inactive, which lets the iframe keep playing in the background. */
+#view-home {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
+#view-home.active {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: auto;
 }
 
 .view-title {

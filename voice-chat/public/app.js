@@ -1543,6 +1543,7 @@ let callAnalyser = null;
 let callMonitorTimer = null;
 // 'idle' | 'listening' | 'processing' | 'speaking' | 'muted'
 let callState = 'idle';
+let callWakeLock = null;
 let speechSeen = false;
 let lastVoiceAt = 0;
 let listenStartedAt = 0;
@@ -1557,6 +1558,32 @@ function callMimeType() {
   if (!window.MediaRecorder) return '';
   return ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
 }
+
+// iOS suspends mic access the moment the screen locks — there's no way
+// around that from a webpage, so instead we stop the screen from locking
+// on its own while a call is active. The OS still releases the lock
+// whenever the page itself goes into the background (app-switch, browser
+// minimized), so it has to be re-acquired on return, not just once at
+// call start.
+async function requestCallWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    callWakeLock = await navigator.wakeLock.request('screen');
+  } catch (err) {
+    console.error('wake lock request failed:', err);
+  }
+}
+
+function releaseCallWakeLock() {
+  if (callWakeLock) callWakeLock.release().catch(() => {});
+  callWakeLock = null;
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && callState !== 'idle' && !callScreen.classList.contains('hidden')) {
+    requestCallWakeLock();
+  }
+});
 
 function addCallLine(who, text) {
   const line = document.createElement('div');
@@ -1718,6 +1745,7 @@ callBtn.addEventListener('click', async () => {
     statusText.textContent = '需要麦克风权限才能通话(去系统设置里允许一下)';
     return;
   }
+  requestCallWakeLock();
   try {
     const source = callAudioCtx.createMediaStreamSource(callStream);
     callAnalyser = callAudioCtx.createAnalyser();
@@ -1759,6 +1787,7 @@ callEndBtn.addEventListener('click', () => {
   if (callStream) { callStream.getTracks().forEach((t) => t.stop()); callStream = null; }
   callAnalyser = null;
   ttsPlayer.pause();
+  releaseCallWakeLock();
   callTalkBtn.classList.remove('recording', 'muted');
   callScreen.classList.add('hidden');
   // The call's turns were saved server-side as normal messages — reload so
