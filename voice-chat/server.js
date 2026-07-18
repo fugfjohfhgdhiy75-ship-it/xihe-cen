@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
+const sharp = require('sharp');
 const crypto = require('crypto');
 const { PDFParse } = require('pdf-parse');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -63,6 +64,31 @@ app.use((req, res, next) => {
 app.use(express.static('public'));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// Claude's image input has a hard 5 MB limit measured on the *base64-encoded*
+// bytes — a full-res iPhone screenshot/photo routinely lands well over that,
+// and since it's the same oversized file every time, retrying the send does
+// nothing. Shrink anything that would exceed it before it ever reaches
+// Supabase or the model, instead of surfacing a "IMAGE_SIZE_EXCEEDED" error
+// she has no way to act on.
+const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
+// base64 inflates raw bytes by ~4/3; stay well under that so re-encoding
+// jitter (multer's own overhead, etc.) never tips it back over.
+const MAX_IMAGE_RAW_BYTES = Math.floor((MAX_IMAGE_BASE64_BYTES * 3) / 4 * 0.85);
+
+async function shrinkImageIfNeeded(buffer, mimetype) {
+  if (buffer.length <= MAX_IMAGE_RAW_BYTES) return { buffer, mimetype };
+  let width = 2048;
+  let quality = 82;
+  let out = buffer;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    out = await sharp(buffer).rotate().resize({ width, withoutEnlargement: true }).jpeg({ quality }).toBuffer();
+    if (out.length <= MAX_IMAGE_RAW_BYTES) break;
+    width = Math.max(800, Math.round(width * 0.8));
+    quality = Math.max(50, quality - 10);
+  }
+  return { buffer: out, mimetype: 'image/jpeg' };
+}
 
 // The base URL / key / model can be overridden from the More page (stored
 // in the settings table) so she can switch relays and models without
@@ -1035,10 +1061,22 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
   };
 
   try {
+    if (files.length) {
+      // Mutate in place — both the Supabase upload below and the
+      // Claude image blocks further down read file.buffer/file.mimetype,
+      // so shrinking once here covers both.
+      await Promise.all(files.map(async (file) => {
+        const shrunk = await shrinkImageIfNeeded(file.buffer, file.mimetype);
+        file.buffer = shrunk.buffer;
+        file.mimetype = shrunk.mimetype;
+      }));
+    }
+
     let imageUrls = [];
     if (files.length) {
       imageUrls = await Promise.all(files.map(async (file, i) => {
-        const path = `${sessionId}/${Date.now()}-${i}-${file.originalname || 'image'}`;
+        const ext = (file.mimetype || 'image/jpeg').split('/')[1] || 'jpg';
+        const path = `${sessionId}/${Date.now()}-${i}.${ext}`;
         const { error: uploadErr } = await supabase.storage
           .from(IMAGE_BUCKET)
           .upload(path, file.buffer, { contentType: file.mimetype });
