@@ -1378,11 +1378,16 @@ h1 {
    illustration shows through them; a faint top-to-bottom white wash
    keeps text readable over busy strokes. */
 #view-chat.custom-bg {
+  background-image: var(--chat-bg-day);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   border-radius: 18px 18px 0 0;
   position: relative;
+}
+
+:root[data-theme="night"] #view-chat.custom-bg {
+  background-image: var(--chat-bg-night);
 }
 
 #view-chat.custom-bg::before {
@@ -1413,6 +1418,21 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.bg-slot-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bg-slot {
+  opacity: 0.55;
+}
+
+.bg-slot.active {
+  opacity: 1;
+  font-weight: 600;
 }
 
 .song-open-link {

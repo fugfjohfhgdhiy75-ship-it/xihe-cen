@@ -230,9 +230,16 @@
           </div>
 
           <div class="card more-card">
-            <label>聊天页背景工坊(用 MiniMax 画,每张按 MiniMax 计费)</label>
-            <textarea id="bgPromptInput" rows="3" placeholder="想要什么画面?留空就用默认的:吉卜力风夏日庭院,蓝天白云"></textarea>
+            <label>聊天页背景工坊</label>
+            <div class="bg-slot-row">
+              <button id="bgSlotDay" class="mini-btn bg-slot active">☀️ 白天版</button>
+              <button id="bgSlotNight" class="mini-btn bg-slot">🌙 夜晚版</button>
+            </div>
+            <label>方式一:用 MiniMax 画一张(按 MiniMax 计费)</label>
+            <textarea id="bgPromptInput" rows="3" placeholder="想要什么画面?留空用默认的:吉卜力风夏日庭院(白天蓝天白云/夜晚星空灯笼萤火虫)"></textarea>
             <button id="bgGenerateBtn" class="mini-btn">生成一张看看</button>
+            <label>方式二:直接上传一张你自己的图</label>
+            <input type="file" id="bgUploadInput" accept="image/*">
             <div id="bgPreviewWrap" class="bg-preview-wrap hidden">
               <img id="bgPreview" class="bg-preview" alt="候选背景">
               <div class="bg-preview-actions">

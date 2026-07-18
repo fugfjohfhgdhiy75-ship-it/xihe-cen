@@ -787,6 +787,7 @@ app.put('/api/settings', async (req, res) => {
   if (req.body.weather_city !== undefined) update.weather_city = (req.body.weather_city || '').trim() || null;
   if (req.body.photo_appearance !== undefined) update.photo_appearance = (req.body.photo_appearance || '').trim() || null;
   if (req.body.chat_bg_url !== undefined) update.chat_bg_url = (req.body.chat_bg_url || '').trim() || null;
+  if (req.body.chat_bg_night_url !== undefined) update.chat_bg_night_url = (req.body.chat_bg_night_url || '').trim() || null;
   let apiFieldsChanged = false;
   for (const key of ['api_base_url', 'api_key', 'model']) {
     if (req.body[key] !== undefined) {
@@ -858,12 +859,14 @@ async function getConfirmedMilestonesBlock() {
 // inherit the persona appearance/face reference, and they're portrait
 // wallpaper ratio. Costs money per hit, so it sits behind the site auth
 // gate like every other API here (no extra passcode needed).
-const DEFAULT_CHAT_BG_PROMPT = '吉卜力风格手绘水彩插画:夏日庭院,湛蓝天空和大朵白云,阳光透过绿叶洒下,院子里有木桌、白色纱帘和风铃,清新的蓝白主色调,柔和治愈,细节丰富。竖构图手机壁纸,画面中部和下部保持柔和简洁,方便叠加聊天气泡。';
+const DEFAULT_CHAT_BG_PROMPT = '吉卜力工作室风格的精细手绘水彩插画,夏日清晨的日式庭院:竹篱笆围墙上爬满盛开的蓝紫色牵牛花藤,庭院里一把旧木椅,长着青苔的石板小径,茂密的绿树和粉白色小花丛,屋檐一角挂着黄铜风铃,柔和的蓝白色天空,大片透亮的云,晨光温柔。细节丰富、笔触细腻、色彩通透,宫崎骏动画背景美术的质感。竖构图手机壁纸。';
+const DEFAULT_CHAT_BG_NIGHT_PROMPT = '吉卜力工作室风格的精细手绘水彩插画,夏夜的日式庭院:深蓝色星空里银河清晰、繁星满天,竹篱笆,旧木椅,长满青苔的石板小径,花丛,草地上几盏暖黄色纸灯笼亮着,萤火虫的光点飘在草间,屋檐挂着玻璃风铃,静谧治愈。细节丰富、笔触细腻,宫崎骏动画背景美术的质感。竖构图手机壁纸。';
 
 app.post('/api/generate-chat-bg', async (req, res) => {
   if (!requireSupabase(res)) return;
   if (!AUTO_IMAGE_READY) { res.status(501).json({ error: 'MiniMax 没配置,生成不了' }); return; }
-  const prompt = ((req.body && req.body.prompt) || '').trim() || DEFAULT_CHAT_BG_PROMPT;
+  const slot = (req.body && req.body.slot) === 'night' ? 'night' : 'day';
+  const prompt = ((req.body && req.body.prompt) || '').trim() || (slot === 'night' ? DEFAULT_CHAT_BG_NIGHT_PROMPT : DEFAULT_CHAT_BG_PROMPT);
   try {
     const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/image_generation?GroupId=${MINIMAX_GROUP_ID}`, {
       method: 'POST',
@@ -895,6 +898,25 @@ app.post('/api/generate-chat-bg', async (req, res) => {
     res.json({ url: supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl });
   } catch (err) {
     res.status(500).json({ error: err.message || '生成失败' });
+  }
+});
+
+// She can also bring her own background (a saved illustration, a photo)
+// instead of paying to generate one — same storage, same apply flow.
+app.post('/api/chat-bg-upload', upload.single('photo'), async (req, res) => {
+  if (!requireSupabase(res)) return;
+  if (!req.file) { res.status(400).json({ error: '没收到图片' }); return; }
+  try {
+    const shrunk = await shrinkImageIfNeeded(req.file.buffer, req.file.mimetype);
+    const ext = (shrunk.mimetype || 'image/jpeg').split('/')[1] || 'jpg';
+    const path = `chat-bg/upload-${Date.now()}.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from(IMAGE_BUCKET)
+      .upload(path, shrunk.buffer, { contentType: shrunk.mimetype });
+    if (uploadErr) { res.status(500).json({ error: '图片保存失败: ' + uploadErr.message }); return; }
+    res.json({ url: supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message || '上传失败' });
   }
 });
 

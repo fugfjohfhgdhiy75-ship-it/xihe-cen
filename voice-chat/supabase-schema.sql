@@ -61,8 +61,10 @@ alter table settings add column if not exists model text;
 alter table settings add column if not exists photo_appearance text;
 alter table settings add column if not exists photo_reference_url text;
 
--- 聊天页自定义背景(更多页的"背景工坊"生成/启用,存 chat-images 桶)
+-- 聊天页自定义背景(更多页的"背景工坊"生成/上传/启用,存 chat-images 桶)
+-- 白天用 chat_bg_url,夜间模式(23:00-6:00)自动切换到 chat_bg_night_url
 alter table settings add column if not exists chat_bg_url text;
+alter table settings add column if not exists chat_bg_night_url text;
 
 -- 纪念册:两人共同确认过的重要事件。"他"在聊天里提议(pending),她在
 -- 聊天气泡下点"记下来"确认(confirmed)后永久生效——confirmed 的条目

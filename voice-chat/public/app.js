@@ -289,7 +289,7 @@ async function loadSettings() {
     modelInputEl.value = data.model || '';
     photoAppearanceEl.value = data.photo_appearance || '';
     renderPhotoRef(data.photo_reference_url || null);
-    applyChatBg(data.chat_bg_url || null);
+    applyChatBg(data.chat_bg_url || null, data.chat_bg_night_url || null);
     renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
@@ -404,22 +404,45 @@ photoRefRemoveEl.addEventListener('click', async () => {
 
 const bgPromptInputEl = document.getElementById('bgPromptInput');
 const bgGenerateBtn = document.getElementById('bgGenerateBtn');
+const bgUploadInputEl = document.getElementById('bgUploadInput');
 const bgPreviewWrapEl = document.getElementById('bgPreviewWrap');
 const bgPreviewEl = document.getElementById('bgPreview');
 const bgApplyBtn = document.getElementById('bgApplyBtn');
 const bgResetBtn = document.getElementById('bgResetBtn');
 const bgStatusEl = document.getElementById('bgStatus');
+const bgSlotDayBtn = document.getElementById('bgSlotDay');
+const bgSlotNightBtn = document.getElementById('bgSlotNight');
 let bgCandidateUrl = null;
+let bgSlot = 'day';
 
-function applyChatBg(url) {
+bgSlotDayBtn.addEventListener('click', () => {
+  bgSlot = 'day';
+  bgSlotDayBtn.classList.add('active');
+  bgSlotNightBtn.classList.remove('active');
+});
+bgSlotNightBtn.addEventListener('click', () => {
+  bgSlot = 'night';
+  bgSlotNightBtn.classList.add('active');
+  bgSlotDayBtn.classList.remove('active');
+});
+
+// Day/night both live as CSS vars on the chat view; the existing
+// :root[data-theme="night"] switch (23:00-6:00) picks which one shows.
+// Night falls back to the day image so a single upload still covers
+// round-the-clock.
+function applyChatBg(dayUrl, nightUrl) {
   const chatView = document.getElementById('view-chat');
-  if (url) {
-    chatView.classList.add('custom-bg');
-    chatView.style.backgroundImage = `url("${url}")`;
-  } else {
-    chatView.classList.remove('custom-bg');
-    chatView.style.backgroundImage = '';
-  }
+  const hasAny = Boolean(dayUrl || nightUrl);
+  chatView.classList.toggle('custom-bg', hasAny);
+  chatView.style.setProperty('--chat-bg-day', dayUrl ? `url("${dayUrl}")` : (nightUrl ? `url("${nightUrl}")` : 'none'));
+  chatView.style.setProperty('--chat-bg-night', nightUrl ? `url("${nightUrl}")` : (dayUrl ? `url("${dayUrl}")` : 'none'));
+}
+
+function showBgCandidate(url, note) {
+  bgCandidateUrl = url;
+  bgPreviewEl.src = url;
+  bgPreviewWrapEl.classList.remove('hidden');
+  bgStatusEl.textContent = note;
 }
 
 bgGenerateBtn.addEventListener('click', async () => {
@@ -429,14 +452,11 @@ bgGenerateBtn.addEventListener('click', async () => {
     const res = await fetch('/api/generate-chat-bg', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: bgPromptInputEl.value }),
+      body: JSON.stringify({ prompt: bgPromptInputEl.value, slot: bgSlot }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '生成失败');
-    bgCandidateUrl = data.url;
-    bgPreviewEl.src = data.url;
-    bgPreviewWrapEl.classList.remove('hidden');
-    bgStatusEl.textContent = '画好了——满意就点"就用这张",不满意改改描述再生成';
+    showBgCandidate(data.url, '画好了——满意就点"就用这张",不满意改改描述再生成');
   } catch (err) {
     bgStatusEl.textContent = '生成失败: ' + err.message;
   } finally {
@@ -444,17 +464,36 @@ bgGenerateBtn.addEventListener('click', async () => {
   }
 });
 
+bgUploadInputEl.addEventListener('change', async () => {
+  const file = bgUploadInputEl.files && bgUploadInputEl.files[0];
+  if (!file) return;
+  bgStatusEl.textContent = '上传中...';
+  try {
+    const form = new FormData();
+    form.append('photo', file);
+    const res = await fetch('/api/chat-bg-upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '上传失败');
+    showBgCandidate(data.url, '传好了——点"就用这张"启用');
+  } catch (err) {
+    bgStatusEl.textContent = '上传失败: ' + err.message;
+  } finally {
+    bgUploadInputEl.value = '';
+  }
+});
+
 bgApplyBtn.addEventListener('click', async () => {
   if (!bgCandidateUrl) return;
-  await patchSettings({ chat_bg_url: bgCandidateUrl });
-  applyChatBg(bgCandidateUrl);
-  bgStatusEl.textContent = '已启用,去聊天页看看效果';
+  const patch = bgSlot === 'night' ? { chat_bg_night_url: bgCandidateUrl } : { chat_bg_url: bgCandidateUrl };
+  await patchSettings(patch);
+  applyChatBg(currentSettings.chat_bg_url || null, currentSettings.chat_bg_night_url || null);
+  bgStatusEl.textContent = (bgSlot === 'night' ? '夜晚版' : '白天版') + '已启用,去聊天页看看效果';
 });
 
 bgResetBtn.addEventListener('click', async () => {
-  await patchSettings({ chat_bg_url: '' });
-  applyChatBg(null);
-  bgStatusEl.textContent = '已恢复默认背景';
+  await patchSettings({ chat_bg_url: '', chat_bg_night_url: '' });
+  applyChatBg(null, null);
+  bgStatusEl.textContent = '已恢复默认背景(白天和夜晚都清掉了)';
 });
 
 // ---- Model / API overrides ----
