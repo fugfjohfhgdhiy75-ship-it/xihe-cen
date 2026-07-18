@@ -944,7 +944,7 @@ async function regenerateReplyAfterEdit(messageId) {
         renderSessionsList();
       }
     } else if (!gotImage) {
-      assistantBubble.textEl.textContent = '(没有收到回复)';
+      assistantBubble.textEl.textContent = '(没有收到回复——服务器可能刚被唤醒或正在重启,点"重新回答"再试一次)';
       statusText.textContent = '';
     } else {
       statusText.textContent = '';
@@ -1152,7 +1152,7 @@ async function sendMessage(rawText) {
         renderSessionsList();
       }
     } else if (!gotImage) {
-      assistantBubble.textEl.textContent = '(没有收到回复)';
+      assistantBubble.textEl.textContent = '(没有收到回复——服务器可能刚被唤醒或正在重启,点"重新回答"再试一次)';
       statusText.textContent = '';
     } else {
       statusText.textContent = '';

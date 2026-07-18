@@ -1219,11 +1219,22 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     if (ended || res.writableEnded) return;
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
+  // A photo turn can go 30-60s with zero bytes on the wire (Claude reply
+  // + fallback judgement + MiniMax generation + storage upload), which
+  // idle-timeout-prone proxies and mobile browsers may treat as a dead
+  // connection and kill — the client then sees "nothing came back" with
+  // no error. SSE comment lines (leading ':') are protocol no-ops the
+  // frontend parser already skips, so tick one out periodically.
+  const keepalive = setInterval(() => {
+    if (!ended && !res.writableEnded) res.write(': ping\n\n');
+  }, 15000);
   const finish = () => {
+    clearInterval(keepalive);
     if (ended || res.writableEnded) return;
     ended = true;
     res.end();
   };
+  res.on('close', () => clearInterval(keepalive));
 
   try {
     if (files.length) {
