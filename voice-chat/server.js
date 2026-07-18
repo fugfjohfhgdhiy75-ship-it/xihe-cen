@@ -51,7 +51,7 @@ app.post('/api/login', (req, res) => {
 // /api/netease-test is a connectivity self-check (no secrets in it) kept
 // outside the auth gate so it can be opened in any browser for debugging
 // without a login round-trip.
-const PUBLIC_PATH_PREFIXES = ['/login.html', '/api/login', '/api/netease-test', '/img/', '/icons/', '/fonts/', '/manifest.json'];
+const PUBLIC_PATH_PREFIXES = ['/login.html', '/api/login', '/api/netease-test', '/api/image-test', '/img/', '/icons/', '/fonts/', '/manifest.json'];
 
 app.use((req, res, next) => {
   if (!SITE_AUTH_ENABLED) { next(); return; }
@@ -892,6 +892,38 @@ app.get('/api/netease-test', async (req, res) => {
   }
 });
 
+// End-to-end self-check for the auto-photo pipeline: actually generates
+// one benign image through MiniMax and reports each step's outcome, so
+// "chat didn't produce a picture" can be split into "the image pipeline
+// itself is broken" vs "the model never asked for one" by opening a URL
+// in any browser. Unlike /api/netease-test this endpoint costs real money
+// per hit, so when CLONE_PASSCODE is configured it doubles as the access
+// code here (same pattern as clone.html).
+app.get('/api/image-test', async (req, res) => {
+  if (CLONE_PASSCODE && req.query.code !== CLONE_PASSCODE) {
+    res.status(401).json({ 结论: '需要口令:在网址后面加 ?code=你配置的CLONE_PASSCODE' });
+    return;
+  }
+  const report = {
+    minimaxKeyConfigured: Boolean(MINIMAX_API_KEY),
+    minimaxGroupConfigured: Boolean(MINIMAX_GROUP_ID),
+    autoImageReady: AUTO_IMAGE_READY,
+    supabaseReady: SUPABASE_READY,
+    imageModel: MINIMAX_IMAGE_MODEL,
+    apiHost: MINIMAX_API_HOST,
+    cooldownRemainingSec: Math.max(0, Math.ceil((AUTO_IMAGE_COOLDOWN_MS - (Date.now() - lastAutoImageAt)) / 1000)),
+  };
+  if (!AUTO_IMAGE_READY) { res.json({ 结论: '❌ MINIMAX_API_KEY / MINIMAX_GROUP_ID 没配好,画图功能整体是关的', ...report }); return; }
+  if (!SUPABASE_READY) { res.json({ 结论: '❌ Supabase 没配好,图生成了也没地方存', ...report }); return; }
+  const started = Date.now();
+  try {
+    const url = await generateMinimaxImage('image-test', '一杯冰美式咖啡放在木桌上,窗边自然光,日常随手拍');
+    res.json({ 结论: '✅ 画图链路完全正常,这张测试图真的生成出来了(见 imageUrl)', 耗时秒: Math.round((Date.now() - started) / 1000), imageUrl: url, ...report });
+  } catch (err) {
+    res.json({ 结论: '❌ 画图这一步失败了,错误原因见 error', 耗时秒: Math.round((Date.now() - started) / 1000), error: err.message, ...report });
+  }
+});
+
 app.get('/api/weather', async (req, res) => {
   if (!requireSupabase(res)) return;
   try {
@@ -1188,18 +1220,23 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // she should see as literal bracket text.
     let imagePrompt = null;
     const markerMatch = text.match(/\[画[:：]\s*([^\]]+)\]/);
+    const explicitAsk = EXPLICIT_PHOTO_REQUEST_RE.test(message);
     if (markerMatch) {
       text = (text.slice(0, markerMatch.index) + text.slice(markerMatch.index + markerMatch[0].length)).trim();
       imagePrompt = markerMatch[1].trim();
-    } else if (EXPLICIT_PHOTO_REQUEST_RE.test(message)) {
+      console.log('auto-image: marker found, prompt =', imagePrompt);
+    } else if (explicitAsk) {
       // She explicitly asked for a photo but the marker still didn't show
       // up — instruction-following on this isn't 100% reliable, and
       // silently doing nothing here reads as broken. Ask a separate,
       // narrowly-scoped call what the photo should show instead of just
       // giving up; only fires on this confirmed-miss case; the common
       // path above where the model got it right doesn't pay this cost.
-      console.log('explicit photo request without a marker — asking a fallback call what to picture');
+      console.log('auto-image: explicit photo request but NO marker — asking a fallback call what to picture');
       imagePrompt = await inferPhotoDescription(message, text);
+      console.log('auto-image: fallback description =', imagePrompt === null ? '(判定不发/失败)' : imagePrompt);
+    } else {
+      console.log('auto-image: no marker, message not an explicit photo request — skipping');
     }
 
     // Try to actually generate the image; on any failure (rate-limited,
@@ -1207,12 +1244,23 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     // rather than failing the whole turn over a picture that didn't work
     // out.
     let imageUrl = null;
-    if (imagePrompt && AUTO_IMAGE_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
-      try {
-        imageUrl = await generateMinimaxImage(sessionId, imagePrompt);
-        lastAutoImageAt = Date.now();
-      } catch (err) {
-        console.error('auto image generation failed:', err.message);
+    if (imagePrompt) {
+      // The cooldown exists to stop the *model* from spamming pictures on
+      // its own initiative — a photo she explicitly asked for is
+      // user-driven cost and should never be silently dropped by it.
+      const cooldownRemaining = AUTO_IMAGE_COOLDOWN_MS - (Date.now() - lastAutoImageAt);
+      if (!AUTO_IMAGE_READY) {
+        console.log('auto-image: skipped — MINIMAX_API_KEY/MINIMAX_GROUP_ID not configured');
+      } else if (!explicitAsk && cooldownRemaining > 0) {
+        console.log(`auto-image: skipped — cooldown, ${Math.ceil(cooldownRemaining / 1000)}s remaining`);
+      } else {
+        try {
+          imageUrl = await generateMinimaxImage(sessionId, imagePrompt);
+          lastAutoImageAt = Date.now();
+          console.log('auto-image: generated OK:', imageUrl);
+        } catch (err) {
+          console.error('auto image generation failed:', err.message);
+        }
       }
     }
 
