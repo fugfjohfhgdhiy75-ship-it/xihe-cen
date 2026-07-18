@@ -1027,6 +1027,33 @@ async function generateMinimaxImage(sessionId, prompt) {
 const AUTO_IMAGE_COOLDOWN_MS = 10 * 60 * 1000;
 let lastAutoImageAt = 0;
 
+// Catches "发张照片/自拍/图片给我" style explicit asks so a missing [画:...]
+// marker (the model doesn't always follow that instruction) can be
+// caught and recovered from instead of just silently producing no photo.
+const EXPLICIT_PHOTO_REQUEST_RE = /(发|拍|来|给我|要).{0,6}(照片|图片|自拍|张图|全身照)/;
+
+// Fallback for when she explicitly asked for a photo but the model's
+// reply didn't carry a [画:...] marker. Rather than trying to regex out a
+// scene from freeform dialogue, ask a small dedicated call to decide —
+// separating "what does the photo show" from "write the reply" makes
+// each easier for the model to get right than asking for both at once.
+async function inferPhotoDescription(userMessage, replyText) {
+  try {
+    const resp = await createMessageWithRetry({
+      model: currentModel(),
+      max_tokens: 120,
+      system: '你在帮一个聊天机器人补一个内部判断:她刚才明确要"他"发一张照片,但"他"的回复里没有标出具体要拍的画面。根据她的要求和"他"这句回复,判断这张照片该拍什么。只输出一句具体的中文画面描述,不要加任何前后缀、引号或解释;如果这句回复其实跟拍照无关(比如在聊别的事、道歉、解释故障),只输出:不发',
+      messages: [{ role: 'user', content: `她说:${userMessage}\n他回复:${replyText}` }],
+    }, 1);
+    const out = (resp.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+    if (!out || out === '不发' || out.length > 80) return null;
+    return out;
+  } catch (err) {
+    console.error('inferPhotoDescription failed:', err.message);
+    return null;
+  }
+}
+
 app.post('/api/chat', upload.array('images', 6), async (req, res) => {
   const sessionId = req.body.sessionId;
   const message = req.body.message || '';
@@ -1158,21 +1185,34 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
 
     // Strip the [画:描述] marker (see the system prompt above) before it
     // ever reaches her — this is a signal for the server, not something
-    // she should see as literal bracket text. If found, try to actually
-    // generate the image; on any failure (rate-limited, content filter,
-    // network) just fall back to the text reply alone rather than
-    // failing the whole turn over a picture that didn't work out.
-    let imageUrl = null;
+    // she should see as literal bracket text.
+    let imagePrompt = null;
     const markerMatch = text.match(/\[画[:：]\s*([^\]]+)\]/);
     if (markerMatch) {
       text = (text.slice(0, markerMatch.index) + text.slice(markerMatch.index + markerMatch[0].length)).trim();
-      if (AUTO_IMAGE_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
-        try {
-          imageUrl = await generateMinimaxImage(sessionId, markerMatch[1].trim());
-          lastAutoImageAt = Date.now();
-        } catch (err) {
-          console.error('auto image generation failed:', err.message);
-        }
+      imagePrompt = markerMatch[1].trim();
+    } else if (EXPLICIT_PHOTO_REQUEST_RE.test(message)) {
+      // She explicitly asked for a photo but the marker still didn't show
+      // up — instruction-following on this isn't 100% reliable, and
+      // silently doing nothing here reads as broken. Ask a separate,
+      // narrowly-scoped call what the photo should show instead of just
+      // giving up; only fires on this confirmed-miss case; the common
+      // path above where the model got it right doesn't pay this cost.
+      console.log('explicit photo request without a marker — asking a fallback call what to picture');
+      imagePrompt = await inferPhotoDescription(message, text);
+    }
+
+    // Try to actually generate the image; on any failure (rate-limited,
+    // content filter, network) just fall back to the text reply alone
+    // rather than failing the whole turn over a picture that didn't work
+    // out.
+    let imageUrl = null;
+    if (imagePrompt && AUTO_IMAGE_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
+      try {
+        imageUrl = await generateMinimaxImage(sessionId, imagePrompt);
+        lastAutoImageAt = Date.now();
+      } catch (err) {
+        console.error('auto image generation failed:', err.message);
       }
     }
 
