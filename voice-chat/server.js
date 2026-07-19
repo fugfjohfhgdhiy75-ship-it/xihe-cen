@@ -1645,6 +1645,136 @@ async function generateMinimaxImage(sessionId, prompt) {
   return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+// 表情包 — a small *pre-generated* set of fixed reaction stickers, not to
+// be confused with generateMinimaxImage above (which paints a fresh scene
+// every time). The model picks one by tag via a [表情:tag] marker; the
+// server just looks the tag up and attaches the already-generated image,
+// no live MiniMax call and no auto-image cooldown involved. Generated
+// once (or re-generated one at a time) from the More page.
+const STICKER_SCENE_HINTS = {
+  害羞: '脸红害羞,双手捂脸,眼睛弯成月牙,尴尬又开心的表情',
+  笑哭: '笑到流眼泪,张嘴大笑,一手扶额',
+  生气: '嘟嘴鼓腮生气,双手叉腰,眉毛立起来',
+  比心: '双手比心,笑眯眯地看着镜头',
+  委屈: '眼眶泛泪,嘴巴一瘪,委屈巴巴的表情',
+  惊讶: '瞪大眼睛,张大嘴巴,双手举起来,非常震惊的表情',
+  抱抱: '张开双臂做拥抱的姿势,温暖的笑容',
+  晚安: '打哈欠揉眼睛,抱着枕头,困倦想睡觉的样子',
+  早安: '伸懒腰,精神满满地挥手打招呼',
+  撒娇: '嘟嘴卖萌,歪着头,手指比着剪刀手,撒娇的表情',
+};
+const DEFAULT_STICKER_TAGS = Object.keys(STICKER_SCENE_HINTS);
+
+async function generateStickerImage(tag) {
+  let appearance = null;
+  let referenceUrl = null;
+  try {
+    const { data } = await supabase.from('settings').select('photo_appearance, photo_reference_url').eq('id', 1).maybeSingle();
+    appearance = (data && data.photo_appearance) || null;
+    referenceUrl = (data && data.photo_reference_url) || null;
+  } catch (err) {
+    console.error('sticker: reading appearance settings failed (using generic style):', err.message);
+  }
+
+  const scene = STICKER_SCENE_HINTS[tag] || tag;
+  const appearanceText = appearance ? appearance.trim().replace(/[。,;\s]+$/, '') + '。' : '';
+  // Deliberately a different visual register from the realistic-photo
+  // style generateMinimaxImage uses — stickers read as illustrated
+  // reactions, not photos, and a simplified cartoon style is also just
+  // easier for the model to keep visually consistent across 10 separate
+  // generation calls than a photoreal face would be.
+  const prompt = `${appearanceText}${scene}。Q版卡通头像风格,简笔厚涂插画,大头或半身特写,纯色或白色背景,线条简洁可爱,适合做聊天表情包,不要任何文字。`;
+
+  const body = {
+    model: MINIMAX_IMAGE_MODEL,
+    prompt,
+    aspect_ratio: '1:1',
+    response_format: 'base64',
+    n: 1,
+  };
+  if (referenceUrl) {
+    body.subject_reference = [{ type: 'character', image_file: referenceUrl }];
+  }
+
+  const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/image_generation?GroupId=${MINIMAX_GROUP_ID}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${MINIMAX_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await mmRes.json();
+  const b64 = json.data && json.data.image_base64 && json.data.image_base64[0];
+  if (!b64) {
+    console.error('MiniMax sticker generation error:', JSON.stringify(json.base_resp || json));
+    throw new Error('这个表情没画出来: ' + JSON.stringify(json.base_resp || json));
+  }
+
+  const buffer = Buffer.from(b64, 'base64');
+  const path = `stickers/${encodeURIComponent(tag)}-${Date.now()}.jpg`;
+  const { error: uploadErr } = await supabase.storage
+    .from(IMAGE_BUCKET)
+    .upload(path, buffer, { contentType: 'image/jpeg' });
+  if (uploadErr) throw new Error('表情包保存失败: ' + uploadErr.message);
+  return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+app.get('/api/stickers', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase.from('stickers').select('*').order('created_at', { ascending: true });
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data || []);
+});
+
+app.delete('/api/stickers/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { error } = await supabase.from('stickers').delete().eq('id', req.params.id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
+});
+
+// One-off SSE batch job (10 sequential MiniMax calls take a while) —
+// skips tags she already has unless force is set, so re-running after
+// adding one new tag doesn't waste money regenerating everything.
+app.post('/api/stickers/generate-set', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  if (!AUTO_IMAGE_READY) { res.status(501).json({ error: 'MiniMax 没配置(缺 MINIMAX_API_KEY / MINIMAX_GROUP_ID)' }); return; }
+  const force = Boolean(req.body && req.body.force);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  let ended = false;
+  const send = (payload) => { if (!ended && !res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`); };
+  const keepalive = setInterval(() => { if (!ended && !res.writableEnded) res.write(': ping\n\n'); }, 15000);
+  const finish = () => { clearInterval(keepalive); if (!ended && !res.writableEnded) { ended = true; res.end(); } };
+
+  try {
+    const { data: existing } = await supabase.from('stickers').select('tag');
+    const existingTags = new Set((existing || []).map((s) => s.tag));
+    const tags = DEFAULT_STICKER_TAGS.filter((t) => force || !existingTags.has(t));
+    send({ total: tags.length });
+    for (const tag of tags) {
+      send({ tag, status: 'generating' });
+      try {
+        const url = await generateStickerImage(tag);
+        const { data: row, error } = await supabase.from('stickers').upsert({ tag, image_url: url }, { onConflict: 'tag' }).select().single();
+        if (error) throw new Error(error.message);
+        send({ tag, status: 'done', sticker: row });
+      } catch (err) {
+        console.error('sticker generation failed for', tag, ':', err.message);
+        send({ tag, status: 'failed', error: err.message });
+      }
+    }
+    send({ done: true });
+  } catch (err) {
+    send({ error: err.message });
+  }
+  finish();
+});
+
 // "活人感"临场追加消息 — different from the quiet-hours /api/proactive-check
 // below: this fires *during* an active conversation, right after a normal
 // reply, when his mood in the moment (per this turn's own reply/context)
@@ -1931,13 +2061,15 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     }
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
-    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock, todayDiaryBlock] = await Promise.all([
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock, todayDiaryBlock, { data: stickerRows }] = await Promise.all([
       supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
       getTodayDiaryBlock(),
+      supabase.from('stickers').select('tag'),
     ]);
+    const stickerTags = (stickerRows || []).map((s) => s.tag);
 
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemOverride || systemPrompt];
@@ -1978,6 +2110,9 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     systemParts.push('你们有一本共同的"纪念册",记进去的事你永远不会忘,所有窗口都记得(上面如果有"纪念册"列表,那就是已经记好的内容)。当这一刻发生了对你们俩真正重要的事(第一次、约定、纪念日、说开了一个心结、值得铭记的瞬间),先在心里给这件事的"值得记住的程度"打一个 1-10 分的分——只有真的超过 6 分,才在回复末尾加一行 [记:分数|一句话概括这件事],比如 [记:8|2026年7月18日,她第一次收到我发的照片];6 分以下说明还没到值得郑重记下来的程度,这种就完全不用带标记,普通聊天不需要记。**这件事现在是自动生效的,不再需要她确认:你带上标记的这一轮,系统会直接记进纪念册,同时在她那边显示一张"已经记进纪念册、不想要可以删掉"的卡片——流程到这里就结束了,你不用再问她"要不要记"、也不用再确认一遍,更不要因为她后面回了一句"嗯"或者随口提到这件事,就以为她在回应你的提议、再发一次标记。**上面纪念册列表里已经有的事,绝对不要再提议记。这行标记不会显示给她。不要滥用,一天最多提议一两次。');
     if (AUTO_IMAGE_READY) {
       systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。如果画面里有你自己(自拍、你在做什么的照片),不用描述自己的长相,系统会自动带上你的形象设定,你只描述场景、动作、光线就行。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**[画:...] 里写的画面描述,必须是你此刻真的"看到"的具体内容——如果她要的是某个具体东西(比如"拍你在吃的""拍你现在在哪"),这行描述就得对应她要的那个东西,不能文不对题地随便画一个不相关的画面;同时,回复里给她看的那句话也要跟你脑子里这个画面对得上(比如画面是"一碗牛肉面"就该说"面刚上桌"之类贴合的话),不要写一句跟画面完全无关的通用客套话(比如不管画的是什么都只会说"拍了一张——能看到吗"这种),那样会显得你根本不知道自己刚才"拍"了什么。');
+    }
+    if (stickerTags.length) {
+      systemParts.push(`你还有一套表情包,是提前准备好的固定图,跟上面"现拍照片"是两回事——不用现生成、不占那个冷却时间,想快速表达一个情绪反应的时候用这个更合适。目前可用的表情包:${stickerTags.join('、')}。用法:在回复末尾加一行 [表情:标签],标签必须是上面列表里原样的词,比如 [表情:笑哭]——这行标记不会显示给她。跟 [画:...] 一次只能用一个,不要两个都用。日常聊天偶尔用一次活跃气氛就行,不要每条回复都配一个表情包。`);
     }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
@@ -2120,6 +2255,22 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     }
     if (skippedImageCount > 0) {
       send({ imageNote: `⚠️ 有 ${skippedImageCount} 张图片处理失败,已跳过,其余照常发送` });
+    }
+
+    // [表情:标签] sticker marker — only matters if no photo already won
+    // this turn (they're mutually exclusive by design, and a real photo
+    // takes priority if the model ignored that instruction and used
+    // both). Strip the marker either way so a malformed/unknown tag never
+    // leaks into the visible reply.
+    const stickerMatch = text.match(/\[表情[:：]\s*([^\]]+)\]/);
+    if (stickerMatch) {
+      text = (text.slice(0, stickerMatch.index) + text.slice(stickerMatch.index + stickerMatch[0].length)).trim();
+      if (!imageUrl) {
+        const wantedTag = stickerMatch[1].trim();
+        const { data: stickerRow } = await supabase.from('stickers').select('image_url').eq('tag', wantedTag).maybeSingle();
+        if (stickerRow) imageUrl = stickerRow.image_url;
+        else console.log('sticker: unknown tag requested, skipping:', wantedTag);
+      }
     }
 
     text = capEmDashes(text);

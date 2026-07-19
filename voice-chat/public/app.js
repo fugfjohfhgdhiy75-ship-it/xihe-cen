@@ -502,6 +502,7 @@ async function loadSettings() {
     modelInputEl.value = data.model || '';
     photoAppearanceEl.value = data.photo_appearance || '';
     renderPhotoRef(data.photo_reference_url || null);
+    loadStickers();
     assistantColorPicker.setHex(data.assistant_text_color || '#3a3a3a');
     userColorPicker.setHex(data.user_text_color || '#1f4a73');
     fontZhSelectEl.value = data.font_zh || '';
@@ -669,6 +670,134 @@ photoRefRemoveEl.addEventListener('click', async () => {
     photoRefStatusEl.textContent = '已移除,之后只按文字描述生成';
   } catch (err) {
     photoRefStatusEl.textContent = err.message;
+  }
+});
+
+// ---- 表情包 (pre-generated sticker set) ----
+
+const stickerGridEl = document.getElementById('stickerGrid');
+const stickerGenerateBtnEl = document.getElementById('stickerGenerateBtn');
+const stickerStatusEl = document.getElementById('stickerStatus');
+
+function renderStickerItem(sticker) {
+  const item = document.createElement('div');
+  item.className = 'sticker-item';
+  item.dataset.tag = sticker.tag;
+  const img = document.createElement('img');
+  img.src = sticker.image_url;
+  img.alt = sticker.tag;
+  const tag = document.createElement('span');
+  tag.className = 'sticker-item-tag';
+  tag.textContent = sticker.tag;
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'sticker-item-del';
+  del.textContent = '✕';
+  del.addEventListener('click', async () => {
+    if (!confirm(`把"${sticker.tag}"这张表情包删掉?`)) return;
+    try {
+      await fetch('/api/stickers/' + sticker.id, { method: 'DELETE' });
+      item.remove();
+    } catch (err) {
+      stickerStatusEl.textContent = '删除失败: ' + err.message;
+    }
+  });
+  item.appendChild(img);
+  item.appendChild(tag);
+  item.appendChild(del);
+  return item;
+}
+
+async function loadStickers() {
+  try {
+    const res = await fetch('/api/stickers');
+    const items = await res.json();
+    if (!res.ok) throw new Error(items.error || '加载失败');
+    stickerGridEl.innerHTML = '';
+    items.forEach((s) => stickerGridEl.appendChild(renderStickerItem(s)));
+  } catch (err) {
+    stickerStatusEl.textContent = '表情包加载失败: ' + err.message;
+  }
+}
+
+// Placeholder tile shown the moment generation starts for a tag, swapped
+// for the real image (or removed) once that tag's SSE event lands — so
+// the grid shows live progress instead of just a static status line.
+function addPendingStickerTile(tag) {
+  const item = document.createElement('div');
+  item.className = 'sticker-item pending';
+  item.dataset.tag = tag;
+  const img = document.createElement('img');
+  img.alt = tag;
+  const tagEl = document.createElement('span');
+  tagEl.className = 'sticker-item-tag';
+  tagEl.textContent = tag;
+  const spinner = document.createElement('span');
+  spinner.className = 'sticker-item-spinner';
+  spinner.textContent = '生成中';
+  item.appendChild(img);
+  item.appendChild(tagEl);
+  item.appendChild(spinner);
+  stickerGridEl.appendChild(item);
+  return item;
+}
+
+stickerGenerateBtnEl.addEventListener('click', async () => {
+  stickerGenerateBtnEl.disabled = true;
+  stickerStatusEl.textContent = '开始生成...';
+  try {
+    const res = await fetch('/api/stickers/generate-set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let total = 0;
+    let doneCount = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = JSON.parse(line.slice(6));
+        // A per-tag failure event also carries an `error` message of its
+        // own (see status === 'failed' below) — only treat `error` as the
+        // fatal top-level kind when there's no per-tag status alongside
+        // it, otherwise this branch swallows the per-tag event before it
+        // ever reaches the handler that actually clears its pending tile.
+        if (payload.error && !payload.status) { stickerStatusEl.textContent = '生成失败: ' + payload.error; continue; }
+        if (payload.total !== undefined) {
+          total = payload.total;
+          if (total === 0) stickerStatusEl.textContent = '已经是齐的了,没有新的要生成';
+          continue;
+        }
+        if (payload.status === 'generating') {
+          addPendingStickerTile(payload.tag);
+          stickerStatusEl.textContent = `正在生成:${payload.tag} (${doneCount + 1}/${total})`;
+        } else if (payload.status === 'done') {
+          doneCount += 1;
+          const pending = stickerGridEl.querySelector(`.sticker-item.pending[data-tag="${CSS.escape(payload.tag)}"]`);
+          const fresh = renderStickerItem(payload.sticker);
+          if (pending) pending.replaceWith(fresh);
+          else stickerGridEl.appendChild(fresh);
+          stickerStatusEl.textContent = `已完成:${payload.tag} (${doneCount}/${total})`;
+        } else if (payload.status === 'failed') {
+          const pending = stickerGridEl.querySelector(`.sticker-item.pending[data-tag="${CSS.escape(payload.tag)}"]`);
+          if (pending) pending.remove();
+          stickerStatusEl.textContent = `"${payload.tag}"这张没画出来,跳过了`;
+        }
+        if (payload.done) stickerStatusEl.textContent = '全部生成完成';
+      }
+    }
+  } catch (err) {
+    stickerStatusEl.textContent = '生成失败: ' + err.message;
+  } finally {
+    stickerGenerateBtnEl.disabled = false;
   }
 });
 

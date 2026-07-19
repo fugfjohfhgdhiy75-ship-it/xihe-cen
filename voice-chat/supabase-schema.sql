@@ -180,6 +180,17 @@ create table if not exists daily_quotes (
   created_at timestamptz not null default now()
 );
 
+-- 表情包:预先生成好的一批固定图(跟自动拍照片不是一回事——那个是现拍新
+-- 画面,这个是一套提前存好的固定反应图),模型想用某种情绪的时候在回复里
+-- 加 [表情:tag] 标记,服务器直接从这里按 tag 取图发送,不用现生成,不占
+-- 自动拍照的冷却时间、也不用等生成。tag 举例:害羞、笑哭、生气、比心等。
+create table if not exists stickers (
+  id bigint generated always as identity primary key,
+  tag text not null unique,
+  image_url text not null,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
 create index if not exists diary_entries_date_idx on diary_entries (entry_date desc);

@@ -630,6 +630,67 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
+/* 表情包 — generated sticker set, More page */
+.sticker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.sticker-item {
+  position: relative;
+  flex: none;
+  width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.sticker-item img {
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.sticker-item-tag {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sticker-item-del {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(36, 52, 76, 0.65);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sticker-item.pending img {
+  opacity: 0.4;
+}
+
+.sticker-item-spinner {
+  position: absolute;
+  top: 28px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 /* 聊天字体与颜色 — HSV color picker (对方/我的文字颜色) */
 .style-color-item {
   display: flex;
