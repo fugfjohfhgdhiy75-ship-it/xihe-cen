@@ -869,31 +869,43 @@ function applyTextColors() {
 // 一个孤立的棕色字)。这里每个预设把气泡底色和文字颜色一起定好、同一色系
 // 搭配,点一下就四个值全套应用,不用自己试。浅色系配浅色/白天背景,深色系配
 // 深色/夜间背景或深色自定义背景图。
+//
+// 参考真实聊天软件的做法(iMessage/HarmonyOS 通知中心等):"对方"的气泡永远
+// 是一个高级、克制的中性灰白/深空灰,只有"我"发的气泡才换成一个鲜明的品牌
+// 强调色——所以这里每个系列(浅色系/深色系)共用同一套中性对方气泡,只有
+// userBubble/userText 随预设变化。强调色取自 iOS 系统色(systemBlue /
+// systemGreen / systemPink / systemOrange,深色系则用其 Dark Mode 变体)和
+// HarmonyOS 的"宇宙蓝",并针对气泡实际做了加深/调整,确保白字在上面读得清楚
+// (之前那版所有色块都是同色系浅粉浅棕的低饱和玻璃色,配文字容易显得"糊"、
+// 不够精神,这版每个强调色都用实际系统色校过对比度)。
+const ASSISTANT_NEUTRAL_LIGHT = { bubble: 'rgba(242,242,247,0.55)', text: '#1c1c1e' };
+const ASSISTANT_NEUTRAL_DARK = { bubble: 'rgba(28,28,30,0.55)', text: '#e5e5ea' };
+
 const COLOR_PALETTES = [
-  { id: 'peach-oolong', name: '蜜桃乌龙', series: 'light',
-    assistantText: '#7a4a30', userText: '#6b3410',
-    assistantBubble: 'rgba(255,214,189,0.35)', userBubble: 'rgba(255,178,140,0.4)' },
-  { id: 'oat-latte', name: '燕麦奶咖', series: 'light',
-    assistantText: '#5c4a3a', userText: '#4a3423',
-    assistantBubble: 'rgba(238,227,210,0.4)', userBubble: 'rgba(205,176,145,0.42)' },
-  { id: 'mint-glow', name: '薄荷微光', series: 'light',
-    assistantText: '#2f6b58', userText: '#1f5443',
-    assistantBubble: 'rgba(214,240,230,0.4)', userBubble: 'rgba(176,224,205,0.42)' },
-  { id: 'sakura-soft', name: '樱花软调', series: 'light',
-    assistantText: '#8a4a63', userText: '#7a2f4f',
-    assistantBubble: 'rgba(255,224,232,0.38)', userBubble: 'rgba(255,195,210,0.42)' },
-  { id: 'dusk-purple', name: '暮山紫', series: 'dark',
-    assistantText: '#d8c8f0', userText: '#e8d8ff',
-    assistantBubble: 'rgba(58,46,74,0.45)', userBubble: 'rgba(90,66,120,0.5)' },
-  { id: 'deep-sea-ink', name: '深海墨蓝', series: 'dark',
-    assistantText: '#bcdcff', userText: '#d0e8ff',
-    assistantBubble: 'rgba(24,38,56,0.45)', userBubble: 'rgba(38,66,100,0.5)' },
-  { id: 'cocoa-mocha', name: '可可摩卡', series: 'dark',
-    assistantText: '#e8c9a8', userText: '#f0d8b8',
-    assistantBubble: 'rgba(50,38,32,0.45)', userBubble: 'rgba(80,56,40,0.5)' },
-  { id: 'pine-ink-green', name: '松林墨绿', series: 'dark',
-    assistantText: '#b8e0c8', userText: '#cdeed8',
-    assistantBubble: 'rgba(24,42,36,0.45)', userBubble: 'rgba(36,62,50,0.5)' },
+  { id: 'ios-milk-blue', name: '云感牛奶', series: 'light',
+    assistantText: ASSISTANT_NEUTRAL_LIGHT.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_LIGHT.bubble, userBubble: 'rgba(10,110,220,0.88)' },
+  { id: 'mint-soda', name: '薄荷苏打', series: 'light',
+    assistantText: ASSISTANT_NEUTRAL_LIGHT.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_LIGHT.bubble, userBubble: 'rgba(15,140,80,0.9)' },
+  { id: 'berry-fizz', name: '莓果气泡', series: 'light',
+    assistantText: ASSISTANT_NEUTRAL_LIGHT.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_LIGHT.bubble, userBubble: 'rgba(214,40,95,0.85)' },
+  { id: 'caramel-macchiato', name: '焦糖玛奇朵', series: 'light',
+    assistantText: ASSISTANT_NEUTRAL_LIGHT.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_LIGHT.bubble, userBubble: 'rgba(170,85,15,0.92)' },
+  { id: 'harmony-night-blue', name: '鸿蒙夜蓝', series: 'dark',
+    assistantText: ASSISTANT_NEUTRAL_DARK.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_DARK.bubble, userBubble: 'rgba(10,89,247,0.68)' },
+  { id: 'deep-space-violet', name: '深空紫罗兰', series: 'dark',
+    assistantText: ASSISTANT_NEUTRAL_DARK.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_DARK.bubble, userBubble: 'rgba(94,92,230,0.68)' },
+  { id: 'aurora-frost', name: '极光青霜', series: 'dark',
+    assistantText: ASSISTANT_NEUTRAL_DARK.text, userText: '#05303d',
+    assistantBubble: ASSISTANT_NEUTRAL_DARK.bubble, userBubble: 'rgba(100,210,255,0.68)' },
+  { id: 'dusk-rose', name: '暮色玫瑰', series: 'dark',
+    assistantText: ASSISTANT_NEUTRAL_DARK.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_DARK.bubble, userBubble: 'rgba(255,55,95,0.68)' },
 ];
 
 function updatePaletteActiveState(activeId) {
