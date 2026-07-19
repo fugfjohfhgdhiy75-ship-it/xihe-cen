@@ -535,6 +535,12 @@ async function saveSettings() {
   }
 }
 
+// Returns { ok, error } so callers that need to know whether the save
+// actually landed (like the app-lock PIN below, where silently no-oping
+// on failure while still claiming success would be actively misleading —
+// she'd believe the lock was on when nothing was ever saved) can check it
+// instead of just assuming success. Existing callers that don't care
+// still work unchanged, they just ignore the return value.
 async function patchSettings(partial) {
   try {
     const res = await fetch('/api/settings', {
@@ -543,9 +549,12 @@ async function patchSettings(partial) {
       body: JSON.stringify(partial),
     });
     const data = await res.json();
-    if (res.ok) currentSettings = data;
+    if (res.ok) { currentSettings = data; return { ok: true }; }
+    statusText.textContent = '保存设置失败: ' + (data.error || res.status);
+    return { ok: false, error: data.error };
   } catch (err) {
     statusText.textContent = '保存设置失败: ' + err.message;
+    return { ok: false, error: err.message };
   }
 }
 
@@ -571,8 +580,13 @@ appLockSaveBtnEl.addEventListener('click', async () => {
   if (!/^\d{6}$/.test(pin)) { appLockSettingStatusEl.textContent = '得是 6 位数字'; return; }
   if (pin !== confirmPin) { appLockSettingStatusEl.textContent = '两次输入的不一样'; return; }
   appLockSaveBtnEl.disabled = true;
-  await patchSettings({ app_lock_pin: pin });
+  const result = await patchSettings({ app_lock_pin: pin });
   appLockSaveBtnEl.disabled = false;
+  // Don't claim success unconditionally — if the save actually failed
+  // (e.g. the app_lock_pin_hash column hasn't been migrated in yet),
+  // telling her it's on when nothing was saved is worse than saying
+  // nothing, since she'd believe she's protected when she isn't.
+  if (!result.ok) { appLockSettingStatusEl.textContent = '保存失败: ' + (result.error || '未知错误,看看是不是数据库还没加这个字段'); return; }
   appLockPinInputEl.value = '';
   appLockPinConfirmEl.value = '';
   appLockEnabled = true;
@@ -581,8 +595,9 @@ appLockSaveBtnEl.addEventListener('click', async () => {
 
 appLockClearBtnEl.addEventListener('click', async () => {
   appLockClearBtnEl.disabled = true;
-  await patchSettings({ app_lock_pin: '' });
+  const result = await patchSettings({ app_lock_pin: '' });
   appLockClearBtnEl.disabled = false;
+  if (!result.ok) { appLockSettingStatusEl.textContent = '关闭失败: ' + (result.error || '未知错误'); return; }
   appLockPinInputEl.value = '';
   appLockPinConfirmEl.value = '';
   appLockEnabled = false;
