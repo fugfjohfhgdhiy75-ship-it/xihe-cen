@@ -2615,6 +2615,38 @@ const milestoneListEl = document.getElementById('milestoneList');
 const milestoneInputEl = document.getElementById('milestoneInput');
 const milestoneAddBtn = document.getElementById('milestoneAddBtn');
 
+function renderMilestoneItem(item) {
+  const row = document.createElement('div');
+  row.className = 'milestone-item';
+  const date = document.createElement('span');
+  date.className = 'milestone-date';
+  date.textContent = new Date(item.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  const content = document.createElement('span');
+  content.className = 'milestone-content';
+  content.textContent = item.content;
+  const del = document.createElement('button');
+  del.className = 'mini-icon-btn milestone-del';
+  del.title = '删除';
+  del.textContent = '✕';
+  del.addEventListener('click', async () => {
+    if (!confirm('把这条从纪念册里删掉?他以后就不记得这件事了。')) return;
+    try {
+      const r = await fetch('/api/milestones/' + item.id, { method: 'DELETE' });
+      if (r.ok) row.remove();
+    } catch {}
+  });
+  row.appendChild(date);
+  row.appendChild(content);
+  row.appendChild(del);
+  return row;
+}
+
+// She asked: past 2 entries, this was making the Home page card grow
+// without bound as the book fills up. Show the most recent 2 (items
+// already come back newest-first) and tuck the rest behind a
+// 展开/收起 toggle instead.
+const MILESTONE_COLLAPSE_AFTER = 2;
+
 async function loadMilestones() {
   try {
     const res = await fetch('/api/milestones');
@@ -2625,30 +2657,28 @@ async function loadMilestones() {
       milestoneListEl.innerHTML = '<div class="song-loading">还没有记下的事</div>';
       return;
     }
-    for (const item of items) {
-      const row = document.createElement('div');
-      row.className = 'milestone-item';
-      const date = document.createElement('span');
-      date.className = 'milestone-date';
-      date.textContent = new Date(item.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-      const content = document.createElement('span');
-      content.className = 'milestone-content';
-      content.textContent = item.content;
-      const del = document.createElement('button');
-      del.className = 'mini-icon-btn milestone-del';
-      del.title = '删除';
-      del.textContent = '✕';
-      del.addEventListener('click', async () => {
-        if (!confirm('把这条从纪念册里删掉?他以后就不记得这件事了。')) return;
-        try {
-          const r = await fetch('/api/milestones/' + item.id, { method: 'DELETE' });
-          if (r.ok) row.remove();
-        } catch {}
+    const visibleItems = items.slice(0, MILESTONE_COLLAPSE_AFTER);
+    const hiddenItems = items.slice(MILESTONE_COLLAPSE_AFTER);
+
+    visibleItems.forEach((item) => milestoneListEl.appendChild(renderMilestoneItem(item)));
+
+    if (hiddenItems.length) {
+      const moreWrap = document.createElement('div');
+      moreWrap.className = 'milestone-more-wrap hidden';
+      hiddenItems.forEach((item) => moreWrap.appendChild(renderMilestoneItem(item)));
+      milestoneListEl.appendChild(moreWrap);
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'milestone-toggle';
+      const expandLabel = `展开还有 ${hiddenItems.length} 条 ⌄`;
+      const collapseLabel = '收起 ⌃';
+      toggleBtn.textContent = expandLabel;
+      toggleBtn.addEventListener('click', () => {
+        const nowHidden = moreWrap.classList.toggle('hidden');
+        toggleBtn.textContent = nowHidden ? expandLabel : collapseLabel;
       });
-      row.appendChild(date);
-      row.appendChild(content);
-      row.appendChild(del);
-      milestoneListEl.appendChild(row);
+      milestoneListEl.appendChild(toggleBtn);
     }
   } catch (err) {
     milestoneListEl.innerHTML = '<div class="song-loading">纪念册加载失败: ' + err.message + '</div>';

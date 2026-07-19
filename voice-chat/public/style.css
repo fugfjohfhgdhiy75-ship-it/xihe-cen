@@ -789,6 +789,27 @@ h1 {
   opacity: 0.55;
 }
 
+/* Wraps everything past the first couple of entries — plain flex column
+   like .milestone-list itself so items inside line up the same way,
+   just toggled by .hidden instead of always being in the render tree. */
+.milestone-more-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.milestone-toggle {
+  align-self: center;
+  margin-top: 2px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+
 .milestone-add-row {
   display: flex;
   gap: 8px;
