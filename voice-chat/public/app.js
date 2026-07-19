@@ -152,9 +152,11 @@ const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="11" height="11" fill="curren
 // Small linework icons for the bubble action chips (复制/重新回答) — same
 // stroke style as iOS's own toolbar glyphs, so they read as icon buttons
 // rather than plain hyperlink-style text.
-const ICON_COPY = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
-const ICON_CHECK = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>';
-const ICON_REDO = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>';
+const ICON_COPY = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
+const ICON_CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>';
+const ICON_REDO = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>';
+const ICON_EDIT = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const ICON_MORE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
 
 function unlockAudioPlayback() {
   ttsPlayer.src = SILENT_WAV;
@@ -1170,7 +1172,8 @@ async function selectSession(id) {
     if (!res.ok) throw new Error(msgs.error || `HTTP ${res.status}`);
     msgs.forEach((m) => {
       const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
-      const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at);
+      const replyTo = m.reply_to_text ? { text: m.reply_to_text, role: m.reply_to_role } : null;
+      const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at, replyTo);
       if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
       if (m.is_voice && m.audio_url) attachVoiceBar(bubble, m.audio_url);
     });
@@ -1266,11 +1269,25 @@ function maybeInsertTimeDivider(createdAt) {
   lastBubbleTimeMs = t;
 }
 
-function appendBubble(role, text, imageUrls, id, createdAt) {
+function appendBubble(role, text, imageUrls, id, createdAt, replyTo) {
   maybeInsertTimeDivider(createdAt);
 
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
+
+  if (replyTo && replyTo.text) {
+    const quote = document.createElement('div');
+    quote.className = 'bubble-quote';
+    const who = document.createElement('span');
+    who.className = 'bubble-quote-who';
+    who.textContent = replyTo.role === 'assistant' ? '回复 他' : '回复 我';
+    const snippet = document.createElement('span');
+    snippet.className = 'bubble-quote-text';
+    snippet.textContent = replyTo.text;
+    quote.appendChild(who);
+    quote.appendChild(snippet);
+    div.appendChild(quote);
+  }
 
   const urls = Array.isArray(imageUrls) ? imageUrls : (imageUrls ? [imageUrls] : []);
   if (urls.length) {
@@ -1319,44 +1336,59 @@ function appendBubble(role, text, imageUrls, id, createdAt) {
     div.appendChild(audioControls);
   }
 
-  let editBtn = null;
-  const bubble = { el: div, textEl, playBtn, speedBtn, id };
-  if (role === 'user') {
-    editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'edit-btn';
-    editBtn.textContent = '✎';
-    editBtn.addEventListener('click', () => startEditBubble(bubble));
-    row.appendChild(editBtn);
-  }
-  bubble.editBtn = editBtn;
+  const bubble = { el: div, textEl, playBtn, speedBtn, id, role, replyTo: replyTo || null };
 
+  // Icon-only quick-actions (like ChatGPT/iOS's own per-message toolbar)
+  // instead of the old text-label chips — regenerate/edit stay
+  // role-specific exactly as before, copy applies to both, and "more"
+  // opens a dropdown with the same actions as text plus 引用 (which has
+  // no dedicated icon of its own).
   const actions = document.createElement('div');
   actions.className = 'bubble-actions';
+
+  let editBtn = null;
+  if (role === 'assistant') {
+    const regenBtn = document.createElement('button');
+    regenBtn.type = 'button';
+    regenBtn.className = 'bubble-action-btn';
+    regenBtn.title = '重新回答';
+    regenBtn.innerHTML = ICON_REDO;
+    regenBtn.addEventListener('click', () => regenerateAssistantBubble(bubble));
+    actions.appendChild(regenBtn);
+  } else {
+    editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'bubble-action-btn';
+    editBtn.title = '编辑';
+    editBtn.innerHTML = ICON_EDIT;
+    editBtn.addEventListener('click', () => startEditBubble(bubble));
+    actions.appendChild(editBtn);
+  }
+  bubble.editBtn = editBtn;
 
   const copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'bubble-action-btn';
-  copyBtn.innerHTML = `<span class="action-icon">${ICON_COPY}</span><span class="action-label">复制</span>`;
+  copyBtn.title = '复制';
+  copyBtn.innerHTML = ICON_COPY;
   copyBtn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(bubble.textEl.textContent);
-      copyBtn.innerHTML = `<span class="action-icon">${ICON_CHECK}</span><span class="action-label">已复制</span>`;
-      setTimeout(() => { copyBtn.innerHTML = `<span class="action-icon">${ICON_COPY}</span><span class="action-label">复制</span>`; }, 1500);
+      copyBtn.innerHTML = ICON_CHECK;
+      setTimeout(() => { copyBtn.innerHTML = ICON_COPY; }, 1500);
     } catch {
       statusText.textContent = '复制失败,长按文字手动复制吧';
     }
   });
   actions.appendChild(copyBtn);
 
-  if (role === 'assistant') {
-    const regenBtn = document.createElement('button');
-    regenBtn.type = 'button';
-    regenBtn.className = 'bubble-action-btn';
-    regenBtn.innerHTML = `<span class="action-icon">${ICON_REDO}</span><span class="action-label">重新回答</span>`;
-    regenBtn.addEventListener('click', () => regenerateAssistantBubble(bubble));
-    actions.appendChild(regenBtn);
-  }
+  const moreBtn = document.createElement('button');
+  moreBtn.type = 'button';
+  moreBtn.className = 'bubble-action-btn';
+  moreBtn.title = '更多';
+  moreBtn.innerHTML = ICON_MORE;
+  moreBtn.addEventListener('click', () => openBubbleMenu(bubble, moreBtn));
+  actions.appendChild(moreBtn);
 
   div.appendChild(actions);
 
@@ -1364,6 +1396,107 @@ function appendBubble(role, text, imageUrls, id, createdAt) {
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   return bubble;
 }
+
+// ---- Bubble "more" menu (iOS-style dropdown) ----
+// Appended to <body> (not inside the bubble/transcript) so it isn't
+// clipped by the transcript's own overflow:auto scrolling, and
+// fixed-positioned against the tapped "..." button's own screen
+// position, flipping upward near the bottom of the viewport so it never
+// renders off-screen under the composer.
+
+let openMenuEl = null;
+let openMenuCleanup = null;
+
+function closeBubbleMenu() {
+  if (openMenuEl) openMenuEl.remove();
+  openMenuEl = null;
+  if (openMenuCleanup) { openMenuCleanup(); openMenuCleanup = null; }
+}
+
+function openBubbleMenu(bubble, anchorBtn) {
+  if (openMenuEl) { closeBubbleMenu(); return; }
+
+  const items = [];
+  if (bubble.role === 'assistant') {
+    items.push({ label: '重新回答', onClick: () => regenerateAssistantBubble(bubble) });
+  } else {
+    items.push({ label: '编辑', onClick: () => startEditBubble(bubble) });
+  }
+  items.push({
+    label: '复制',
+    onClick: async () => {
+      try { await navigator.clipboard.writeText(bubble.textEl.textContent); }
+      catch { statusText.textContent = '复制失败,长按文字手动复制吧'; }
+    },
+  });
+  items.push({ label: '引用', onClick: () => setPendingReplyTo(bubble) });
+
+  const menu = document.createElement('div');
+  menu.className = 'bubble-more-menu';
+  items.forEach((item) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = item.label;
+    btn.addEventListener('click', () => { closeBubbleMenu(); item.onClick(); });
+    menu.appendChild(btn);
+  });
+  document.body.appendChild(menu);
+  openMenuEl = menu;
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const top = spaceBelow >= menuRect.height + 12 ? rect.bottom + 6 : rect.top - menuRect.height - 6;
+  let left = rect.right - menuRect.width;
+  left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8));
+  menu.style.position = 'fixed';
+  menu.style.top = `${Math.max(8, top)}px`;
+  menu.style.left = `${left}px`;
+
+  // Swallow the click that opened it (it's already bubbled to document by
+  // the time this runs) so the outside-click listener below doesn't fire
+  // on its own opening tap and close the menu instantly.
+  const onOutside = (e) => { if (!menu.contains(e.target)) closeBubbleMenu(); };
+  const onScroll = () => closeBubbleMenu();
+  setTimeout(() => {
+    document.addEventListener('click', onOutside, { capture: true });
+    transcriptEl.addEventListener('scroll', onScroll, { passive: true });
+  }, 0);
+  openMenuCleanup = () => {
+    document.removeEventListener('click', onOutside, { capture: true });
+    transcriptEl.removeEventListener('scroll', onScroll);
+  };
+}
+
+// ---- 引用/reply-to (WeChat-style quote reply) ----
+// Picking "引用" from a bubble's menu snapshots that bubble's text (not a
+// live reference — the quoted message could later be edited or deleted,
+// and the snippet should keep showing what it showed at the time) and
+// shows a preview strip above the composer; the next message sent
+// (text or voice) carries it along, cleared after that one send.
+
+const replyToStripEl = document.getElementById('replyToStrip');
+const replyToWhoEl = document.getElementById('replyToWho');
+const replyToTextEl = document.getElementById('replyToText');
+const replyToCancelEl = document.getElementById('replyToCancel');
+let pendingReplyTo = null;
+
+function setPendingReplyTo(bubble) {
+  const text = bubble.textEl.textContent.trim();
+  if (!text) return;
+  pendingReplyTo = { text: text.slice(0, 150), role: bubble.role };
+  replyToWhoEl.textContent = bubble.role === 'assistant' ? '回复 他' : '回复 我自己';
+  replyToTextEl.textContent = pendingReplyTo.text;
+  replyToStripEl.classList.remove('hidden');
+  textInput.focus();
+}
+
+function clearPendingReplyTo() {
+  pendingReplyTo = null;
+  replyToStripEl.classList.add('hidden');
+}
+
+replyToCancelEl.addEventListener('click', clearPendingReplyTo);
 
 // ---- WeChat-style voice bubbles ----
 
@@ -1776,7 +1909,9 @@ async function sendMessage(rawText) {
   if ((!text && !imageFiles.length) || !currentSessionId) return;
 
   const localImageUrls = imageFiles.map((f) => URL.createObjectURL(f));
-  const userBubble = appendBubble('user', text, localImageUrls);
+  const replyTo = pendingReplyTo;
+  const userBubble = appendBubble('user', text, localImageUrls, null, null, replyTo);
+  clearPendingReplyTo();
   textInput.value = '';
   clearImageSelection();
   setBusy(true);
@@ -1792,6 +1927,10 @@ async function sendMessage(rawText) {
     form.append('sessionId', currentSessionId);
     form.append('message', text);
     imageFiles.forEach((f) => form.append('images', f));
+    if (replyTo) {
+      form.append('replyToText', replyTo.text);
+      form.append('replyToRole', replyTo.role);
+    }
 
     const res = await fetch('/api/chat', { method: 'POST', body: form });
 
@@ -1980,7 +2119,9 @@ async function sendVoiceMessage(blob, mime) {
   if (!currentSessionId) return;
   setBusy(true);
   statusText.textContent = '发送中...';
-  const userBubble = appendBubble('user', '(语音识别中...)');
+  const replyTo = pendingReplyTo;
+  const userBubble = appendBubble('user', '(语音识别中...)', null, null, null, replyTo);
+  clearPendingReplyTo();
   const assistantBubble = appendBubble('assistant', '');
   let fullText = '';
   let gotImage = false;
@@ -1989,6 +2130,10 @@ async function sendVoiceMessage(blob, mime) {
     const form = new FormData();
     form.append('sessionId', currentSessionId);
     form.append('voice', blob, mime.includes('webm') ? 'voice.webm' : 'voice.m4a');
+    if (replyTo) {
+      form.append('replyToText', replyTo.text);
+      form.append('replyToRole', replyTo.role);
+    }
 
     const res = await fetch('/api/chat', { method: 'POST', body: form });
     const reader = res.body.getReader();

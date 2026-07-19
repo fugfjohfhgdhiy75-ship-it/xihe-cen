@@ -356,6 +356,20 @@ function shanghaiNowStr() {
   });
 }
 
+// A quoted/引用 message only exists client-side as "she picked an earlier
+// line to reply to" — Claude never sees that on its own, since the raw
+// history array is just role+content in order. Splice the quoted snippet
+// into the content actually sent to the model (not into what's stored or
+// displayed) so it reads the same way a real reply-with-context would,
+// no matter how many turns back the quoted line was.
+function toClaudeMessages(rows) {
+  return (rows || []).map((m) => {
+    if (!m.reply_to_text) return { role: m.role, content: m.content };
+    const who = m.reply_to_role === 'assistant' ? '你之前说的' : '她自己之前说的';
+    return { role: m.role, content: `(引用了${who}一句:"${m.reply_to_text}")\n${m.content}` };
+  });
+}
+
 async function getSetting(key) {
   if (!SUPABASE_READY) return undefined;
   const { data } = await supabase.from('settings').select(key).eq('id', 1).maybeSingle();
@@ -768,7 +782,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase
     .from('messages')
-    .select('id, role, content, image_url, image_urls, audio_url, is_voice, created_at')
+    .select('id, role, content, image_url, image_urls, audio_url, is_voice, reply_to_text, reply_to_role, created_at')
     .eq('session_id', req.params.id)
     .eq('visible', true)
     .order('created_at', { ascending: true });
@@ -931,7 +945,7 @@ app.post('/api/proactive-check', async (req, res) => {
     if (Math.random() > 0.7) { res.json({ sent: false, reason: 'dice' }); return; }
 
     const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
-      supabase.from('messages').select('role, content').eq('session_id', session.id).eq('visible', true).order('created_at', { ascending: false }).limit(12),
+      supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', session.id).eq('visible', true).order('created_at', { ascending: false }).limit(12),
       supabase.from('memories').select('summary').eq('session_id', session.id).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
@@ -951,7 +965,7 @@ app.post('/api/proactive-check', async (req, res) => {
       model: currentModel(),
       max_tokens: 300,
       system: systemParts.filter(Boolean).join('\n\n'),
-      messages: recent.length ? recent.map((m) => ({ role: m.role, content: m.content })) : [{ role: 'user', content: '(她还没说过话,你先开口)' }],
+      messages: recent.length ? toClaudeMessages(recent) : [{ role: 'user', content: '(她还没说过话,你先开口)' }],
     });
     let text = (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
 
@@ -1600,6 +1614,12 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
   // PATCH /api/messages/:id, so this skips inserting a new user row and
   // just generates a fresh reply against the existing (edited) history.
   const regenerateMessageId = req.body.regenerateMessageId || null;
+  // 引用/reply — a snapshot of the quoted line + who said it, not a
+  // foreign-key id, so it keeps displaying correctly even if the quoted
+  // message is later edited or deleted. Capped defensively since this
+  // rides in as a plain form field.
+  const replyToText = (req.body.replyToText || '').trim().slice(0, 300) || null;
+  const replyToRole = replyToText && ['user', 'assistant'].includes(req.body.replyToRole) ? req.body.replyToRole : null;
 
   if (!sessionId || (!regenerateMessageId && !message.trim() && !files.length && !voiceFile)) {
     res.status(400).json({ error: 'sessionId and message (or at least one image) are required' });
@@ -1708,6 +1728,8 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
           image_urls: imageUrls.length ? imageUrls : null,
           audio_url: userVoiceUrl,
           is_voice: voiceMode,
+          reply_to_text: replyToText,
+          reply_to_role: replyToRole,
         })
         .select()
         .single();
@@ -1716,7 +1738,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
     const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
-      supabase.from('messages').select('role, content').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
+      supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
@@ -1763,7 +1785,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
-    const messages = (history || []).map((m) => ({ role: m.role, content: m.content }));
+    const messages = toClaudeMessages(history);
 
     // Only the message we just inserted (the last one) carries the actual
     // image bytes to the model — history reloads don't re-send past images,
@@ -2225,7 +2247,7 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
     const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
-      supabase.from('messages').select('role, content').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
+      supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
@@ -2242,7 +2264,7 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
       model: currentModel(),
       max_tokens: 300,
       system: systemParts.filter(Boolean).join('\n\n') || undefined,
-      messages: (history || []).map((m) => ({ role: m.role, content: m.content })),
+      messages: toClaudeMessages(history),
     });
     let replyText = (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
     replyText = replyText.replace(/\[画[:：]\s*[^\]]+\]/g, '').replace(/\[记[:：]\s*[^\]]+\]/g, '').trim();

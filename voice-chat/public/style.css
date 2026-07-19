@@ -886,35 +886,108 @@ h1 {
 
 .bubble .bubble-actions {
   display: flex;
-  gap: 12px;
-  margin-top: 5px;
-}
-
-.bubble.user .bubble-actions {
-  justify-content: flex-end;
-}
-
-/* Small icon+label chips (WeChat/iOS-style toolbar buttons) rather than
-   bare hyperlink-looking text — same faint pill treatment as
-   .audio-controls below, so every row of message controls in a bubble
-   reads as one consistent design language. */
-.bubble .bubble-action-btn {
-  display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
+  margin-top: 5px;
+  align-self: flex-start;
   background: rgba(0,0,0,0.04);
   border: 1px solid rgba(255,255,255,0.5);
   border-radius: 999px;
-  padding: 3px 9px;
-  font-size: 11px;
+  padding: 2px;
+}
+
+.bubble.user .bubble-actions {
+  align-self: flex-end;
+}
+
+/* Icon-only quick actions (ChatGPT/iOS-style per-message toolbar) rather
+   than bare hyperlink-looking text — the full text-labeled version of
+   these lives in the "..." dropdown (.bubble-more-menu) instead. */
+.bubble .bubble-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
   color: var(--text-faint);
   cursor: pointer;
   font-family: inherit;
 }
 
-.bubble .bubble-action-btn .action-icon {
+.bubble .bubble-action-btn:active {
+  background: rgba(0,0,0,0.08);
+}
+
+/* Dropdown opened by the "..." button — appended to <body> and
+   fixed-positioned in JS (see openBubbleMenu in app.js), styled like
+   iOS's own long-press context menu: dark, bold centered text, thin
+   dividers between items, regardless of the page's light/dark theme
+   (a context menu floating over anything should stay legible either
+   way, so this doesn't use the theme's glass variables). */
+.bubble-more-menu {
+  z-index: 200;
+  min-width: 132px;
+  background: rgba(28,28,30,0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 14px;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.35);
+  overflow: hidden;
   display: flex;
-  flex: none;
+  flex-direction: column;
+}
+
+.bubble-more-menu button {
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.12);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 12px 18px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.bubble-more-menu button:first-child {
+  border-top: none;
+}
+
+.bubble-more-menu button:active {
+  background: rgba(255,255,255,0.1);
+}
+
+/* Quoted-snippet block shown inside a bubble when that message replied
+   to an earlier one (see 引用 in the "..." menu) — a scaled-down echo of
+   the reply-to-strip preview shown above the composer while composing. */
+.bubble-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  margin-bottom: 6px;
+  background: rgba(0,0,0,0.06);
+  border-left: 2px solid currentColor;
+  border-radius: 6px;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+.bubble-quote-who {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.bubble-quote-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Distinct but still both legible on the glass — his replies read as a
@@ -1001,21 +1074,6 @@ h1 {
   display: flex;
 }
 
-.bubble .edit-btn {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255,255,255,0.4);
-  color: var(--text);
-  cursor: pointer;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.9;
-}
 
 .edit-textarea {
   flex: 1;
@@ -1080,6 +1138,61 @@ h1 {
    the keyboard — drop it entirely until the keyboard closes again. */
 .composer-dock.kb-open {
   padding-bottom: 0;
+}
+
+/* Preview strip for 引用/quote-reply, shown above the composer input
+   between picking "引用" from a bubble's "..." menu and actually sending
+   the next message — same left-accent-bar convention WeChat uses for its
+   own quote-reply preview. */
+.reply-to-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 8px 0;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.35);
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.reply-to-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.reply-to-who {
+  flex: none;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.reply-to-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-to-cancel {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.08);
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .image-preview {

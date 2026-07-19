@@ -82,6 +82,13 @@ alter table settings add column if not exists font_en text;
 alter table settings add column if not exists user_bubble_color text;
 alter table settings add column if not exists assistant_bubble_color text;
 
+-- 引用回复(微信式):点某条消息的"..."菜单选"引用",发下一条消息时会带上
+-- 被引用消息的文字快照(reply_to_text)和是谁说的(reply_to_role,
+-- 'user'/'assistant')。存快照而不是存 id,是因为原消息以后可能被编辑/
+-- 删除,快照能保证引用内容一直显示、不会指向一条已经变了的消息。
+alter table messages add column if not exists reply_to_text text;
+alter table messages add column if not exists reply_to_role text;
+
 -- 语音条(微信式):audio_url 是录音/合成语音文件,is_voice 标记这条消息
 -- 以语音条形式展示;proactive 标记"他主动发起"的消息(用于控制频率)
 alter table messages add column if not exists audio_url text;
