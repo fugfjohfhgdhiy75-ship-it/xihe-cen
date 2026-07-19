@@ -756,6 +756,7 @@ stickerGenerateBtnEl.addEventListener('click', async () => {
     let buf = '';
     let total = 0;
     let doneCount = 0;
+    let failCount = 0;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -787,11 +788,20 @@ stickerGenerateBtnEl.addEventListener('click', async () => {
           else stickerGridEl.appendChild(fresh);
           stickerStatusEl.textContent = `已完成:${payload.tag} (${doneCount}/${total})`;
         } else if (payload.status === 'failed') {
+          failCount += 1;
           const pending = stickerGridEl.querySelector(`.sticker-item.pending[data-tag="${CSS.escape(payload.tag)}"]`);
           if (pending) pending.remove();
-          stickerStatusEl.textContent = `"${payload.tag}"这张没画出来,跳过了`;
+          stickerStatusEl.textContent = `"${payload.tag}"这张没画出来,跳过了(${payload.error || ''})`;
         }
-        if (payload.done) stickerStatusEl.textContent = '全部生成完成';
+        // Report honestly instead of a blanket "全部完成" that reads as
+        // success even when every single one actually failed — she hit
+        // exactly that: the final message overwrote several silent
+        // per-tag failures with what looked like a success line.
+        if (payload.done) {
+          stickerStatusEl.textContent = failCount
+            ? `生成结束:成功 ${doneCount} 张,失败 ${failCount} 张`
+            : `全部生成完成(${doneCount} 张)`;
+        }
       }
     }
   } catch (err) {

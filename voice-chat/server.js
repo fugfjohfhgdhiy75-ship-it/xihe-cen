@@ -1664,6 +1664,18 @@ const STICKER_SCENE_HINTS = {
   撒娇: '嘟嘴卖萌,歪着头,手指比着剪刀手,撒娇的表情',
 };
 const DEFAULT_STICKER_TAGS = Object.keys(STICKER_SCENE_HINTS);
+// Supabase Storage rejects non-ASCII (and apparently percent-encoded)
+// characters in object keys — confirmed via Render logs: every single
+// generation failed with "Invalid key: stickers/害羞-....jpg" even though
+// the path was built with encodeURIComponent(tag). Sidestep the whole
+// question of what exactly Storage's key validator allows by keeping the
+// tag (which still displays as Chinese everywhere else — chat, the More
+// page grid) out of the file path entirely.
+const STICKER_SLUGS = {
+  害羞: 'shy', 笑哭: 'laugh-cry', 生气: 'angry', 比心: 'heart-hands',
+  委屈: 'wronged', 惊讶: 'shocked', 抱抱: 'hug', 晚安: 'goodnight',
+  早安: 'good-morning', 撒娇: 'acting-cute',
+};
 
 async function generateStickerImage(tag) {
   let appearance = null;
@@ -1712,7 +1724,8 @@ async function generateStickerImage(tag) {
   }
 
   const buffer = Buffer.from(b64, 'base64');
-  const path = `stickers/${encodeURIComponent(tag)}-${Date.now()}.jpg`;
+  const slug = STICKER_SLUGS[tag] || 'sticker';
+  const path = `stickers/${slug}-${Date.now()}.jpg`;
   const { error: uploadErr } = await supabase.storage
     .from(IMAGE_BUCKET)
     .upload(path, buffer, { contentType: 'image/jpeg' });
