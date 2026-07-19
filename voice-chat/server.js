@@ -1557,7 +1557,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 6 }, { name: 'v
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
     if (voiceMode) {
-      systemParts.push('她刚才这条是语音说的,你的回复也会作为语音条发给她(会被念出来)。所以像发微信语音那样说话:口语、自然、别太长(几句话为宜),不要用括号动作描写、加粗、列表这些只适合看的排版。');
+      systemParts.push('她刚才这条是语音说的(下面是转写的文字)。照常回复就行,想听的话她会点播放。');
     }
     systemParts.push('你们有一本共同的"纪念册",记进去的事你永远不会忘,所有窗口都记得(上面如果有"纪念册"列表,那就是已经记好的内容)。当这一刻发生了对你们俩真正重要的事(第一次、约定、纪念日、说开了一个心结、值得铭记的瞬间),你可以在回复里自然地提一句想把它记下来,并在回复末尾加一行 [记:一句话概括这件事],比如 [记:2026年7月18日,她第一次收到我发的照片]。**流程是一次性的:你带上标记的那一轮,她那边就会弹出确认卡片,她在卡片上点"记下来"就完成入册了——你之后不需要再做任何事,更不要再问一遍。**所以:上面纪念册列表里已经有的事,绝对不要再提议记;她说"好,记下来""记吧"多半是在回应你上一轮的提议(她点卡片就行),这种情况也不要再发一次标记。只有纪念册里没有这件事、而她明确要求记的时候,才带标记。这行标记不会显示给她。不要滥用:普通聊天不需要记,一天最多提议一两次。');
     if (AUTO_IMAGE_READY) {
@@ -1691,33 +1691,17 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 6 }, { name: 'v
       send({ imageNote: '📷 这次照片没发出来: ' + imageFailReason });
     }
 
-    // Voice begets voice — she sent a clip, so his reply also arrives as
-    // one (with the text as a readable transcript). TTS failure falls
-    // back to a plain text bubble rather than failing the turn.
-    let replyVoiceUrl = null;
-    if (voiceMode && text && (ELEVENLABS_READY || MINIMAX_READY)) {
-      try {
-        const audioBuf = await synthesizeSpeech(text);
-        const apath = `${sessionId}/voice-reply-${Date.now()}.mp3`;
-        const { error: aErr } = await supabase.storage
-          .from(IMAGE_BUCKET)
-          .upload(apath, audioBuf, { contentType: 'audio/mpeg' });
-        if (!aErr) replyVoiceUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(apath).data.publicUrl;
-        else console.error('voice reply upload failed:', aErr.message);
-      } catch (err) {
-        console.error('voice reply synthesis failed (falling back to text):', err.message);
-      }
-    }
-
+    // Her call: his replies stay text-only even when she sent voice — the
+    // existing lazy ▶ button synthesizes speech on demand, which avoids
+    // paying TTS for every reply she may never listen to.
     if (!text && !imageUrl) {
       console.error('/api/chat: empty completion, message =', JSON.stringify(claudeMessage));
       send({ error: `模型没返回任何文字(stop_reason=${claudeMessage.stop_reason}),把这条截图发给开发者` });
     } else {
       const insertPayload = { session_id: sessionId, role: 'assistant', content: text };
       if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
-      if (replyVoiceUrl) { insertPayload.audio_url = replyVoiceUrl; insertPayload.is_voice = true; }
       const { data: insertedReply } = await supabase.from('messages').insert(insertPayload).select().single();
-      send({ text, imageUrl, voiceUrl: replyVoiceUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
+      send({ text, imageUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
       if (pendingMilestone) send({ milestonePending: { id: pendingMilestone.id, content: pendingMilestone.content } });
       send({ done: true });
       compressIfNeeded(sessionId)

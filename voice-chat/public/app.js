@@ -501,18 +501,46 @@ bgUploadInputEl.addEventListener('change', async () => {
   }
 });
 
+// patchSettings swallows failures into the chat status line, which is
+// invisible from the More page — the apply button once claimed success
+// while the save had actually failed (e.g. the settings column missing
+// because the newest schema SQL hadn't been run). Save directly here and
+// put the real outcome, good or bad, right under the button.
+async function saveBgSetting(patch) {
+  const res = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  currentSettings = data;
+  return data;
+}
+
 bgApplyBtn.addEventListener('click', async () => {
   if (!bgCandidateUrl) return;
-  const patch = bgSlot === 'night' ? { chat_bg_night_url: bgCandidateUrl } : { chat_bg_url: bgCandidateUrl };
-  await patchSettings(patch);
-  applyChatBg(currentSettings.chat_bg_url || null, currentSettings.chat_bg_night_url || null);
-  bgStatusEl.textContent = (bgSlot === 'night' ? '夜晚版' : '白天版') + '已启用,去聊天页看看效果';
+  bgApplyBtn.disabled = true;
+  try {
+    const patch = bgSlot === 'night' ? { chat_bg_night_url: bgCandidateUrl } : { chat_bg_url: bgCandidateUrl };
+    const s = await saveBgSetting(patch);
+    applyChatBg(s.chat_bg_url || null, s.chat_bg_night_url || null);
+    bgStatusEl.textContent = (bgSlot === 'night' ? '🌙 夜晚版' : '☀️ 白天版') + '已启用,去聊天页看看效果';
+  } catch (err) {
+    bgStatusEl.textContent = '保存失败: ' + err.message + '(如果提示 column 不存在,去 Supabase 跑一遍最新的建表 SQL)';
+  } finally {
+    bgApplyBtn.disabled = false;
+  }
 });
 
 bgResetBtn.addEventListener('click', async () => {
-  await patchSettings({ chat_bg_url: '', chat_bg_night_url: '' });
-  applyChatBg(null, null);
-  bgStatusEl.textContent = '已恢复默认背景(白天和夜晚都清掉了)';
+  try {
+    const s = await saveBgSetting({ chat_bg_url: '', chat_bg_night_url: '' });
+    applyChatBg(s.chat_bg_url || null, s.chat_bg_night_url || null);
+    bgStatusEl.textContent = '已恢复默认背景(白天和夜晚都清掉了)';
+  } catch (err) {
+    bgStatusEl.textContent = '恢复失败: ' + err.message;
+  }
 });
 
 // ---- Model / API overrides ----
