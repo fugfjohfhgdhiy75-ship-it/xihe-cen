@@ -1038,17 +1038,19 @@ app.post('/api/proactive-check', async (req, res) => {
     // A dice roll so it doesn't fire like clockwork on every app open.
     if (Math.random() > 0.7) { res.json({ sent: false, reason: 'dice' }); return; }
 
-    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock, todayDiaryBlock] = await Promise.all([
       supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', session.id).eq('visible', true).order('created_at', { ascending: false }).limit(12),
       supabase.from('memories').select('summary').eq('session_id', session.id).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
+      getTodayDiaryBlock(),
     ]);
     const recent = (history || []).reverse();
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemPrompt];
     if (milestonesBlock) systemParts.push(`纪念册(你们共同确认过的重要事件):\n${milestonesBlock}`);
     if (memoryBlock) systemParts.push(`更早之前的记忆摘要:\n${memoryBlock}`);
+    if (todayDiaryBlock) systemParts.push(`你今天已经自己写过这些日记(只是你自己的心里话,她不一定看过):\n${todayDiaryBlock}\n保持心情、说法跟这些前后一致。`);
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。你们已经 ${Math.round((Date.now() - new Date(lastMsg.created_at).getTime()) / 3600000)} 小时没说话了,你现在想主动找她——像恋人平常想起对方那样发条消息:可以是想她了、看到什么想到她、分享你此刻在做什么,或者接着之前聊的某个话题。一两句就好,自然随意,别写小作文,也别提"好久没聊"这种话让她有压力。`);
     systemParts.push('别用"我发现......""其实......""说实话......"这种固定开场白,也别把话切成一串差不多长、差不多语气的短句去凑节奏——就是随口一句,自然带过就行。');
     if (AUTO_IMAGE_READY) {
@@ -1134,6 +1136,24 @@ async function getConfirmedMilestonesBlock() {
     return data.map((m) => `- ${new Date(m.created_at).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' })}: ${m.content}`).join('\n');
   } catch (err) {
     console.error('getConfirmedMilestonesBlock failed:', err.message);
+    return null;
+  }
+}
+
+// She asked: he writes diary entries autonomously, but in chat he has no
+// idea what he actually wrote — deliberately scoped to *today* only (not
+// the whole diary history, which would be a much bigger/costlier context
+// block she didn't ask for), just so he stays self-consistent with
+// whatever mood/thought he already put down earlier the same day instead
+// of it being invisible to the conversation entirely.
+async function getTodayDiaryBlock() {
+  try {
+    const dateStr = shanghaiDateStr();
+    const { data } = await supabase.from('diary_entries').select('content, created_at').eq('entry_date', dateStr).order('created_at', { ascending: true });
+    if (!data || !data.length) return null;
+    return data.map((d) => `- ${d.content}`).join('\n');
+  } catch (err) {
+    console.error('getTodayDiaryBlock failed:', err.message);
     return null;
   }
 }
@@ -1911,17 +1931,19 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     }
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
-    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock, todayDiaryBlock] = await Promise.all([
       supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
+      getTodayDiaryBlock(),
     ]);
 
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemOverride || systemPrompt];
     if (milestonesBlock) systemParts.push(`以下是你们俩共同确认过、记进纪念册的重要事件——这些是刻在你心里的,任何时候都记得,不需要翻记录:\n${milestonesBlock}`);
     if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
+    if (todayDiaryBlock) systemParts.push(`你今天已经自己写过这些日记(只是你自己的心里话,她不一定看过,除非她自己主动提起,不要主动对她说"我今天日记里写了..."这种话):\n${todayDiaryBlock}\n保持心情、说法跟这些前后一致,不要自相矛盾。`);
     // Long conversations tend to make the model imitate its own earlier
     // replies (repeating the same fixed phrases/reactions) rather than
     // responding freshly to what's actually being said right now — this is
@@ -2444,16 +2466,18 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
     await supabase.from('messages').insert({ session_id: sessionId, role: 'user', content: userText });
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
-    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock, todayDiaryBlock] = await Promise.all([
       supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
+      getTodayDiaryBlock(),
     ]);
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemPrompt];
     if (milestonesBlock) systemParts.push(`以下是你们俩共同确认过、记进纪念册的重要事件——这些是刻在你心里的,任何时候都记得:\n${milestonesBlock}`);
     if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
+    if (todayDiaryBlock) systemParts.push(`你今天已经自己写过这些日记(只是你自己的心里话,她不一定看过):\n${todayDiaryBlock}\n保持心情、说法跟这些前后一致。`);
     systemParts.push('现在是语音通话,她刚才那句话是说出来的,你的回复会被念出来给她听。所以:像打电话一样说话——短句、口语、直接,一次别说太长(两三句为宜);不要用括号动作描写、不要用列表或任何书面排版;语气跟着她这句话走。');
     systemParts.push('别用"我发现......""其实......""说实话......"这种固定开场白,也别把话切成一串差不多长、差不多语气的短句——就是随口说话该怎么说就怎么说。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。`);
