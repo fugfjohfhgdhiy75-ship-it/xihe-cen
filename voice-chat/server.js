@@ -504,7 +504,29 @@ async function pickDailySong(rejectedTitles) {
     ? `\n她最近听过的推荐(这些她都留下了,风格可以参考,但**不要重复推荐这些歌本身**): ${keptSongs.join('、')}`
     : '';
   const avoidList = uniqueRejected.length ? `\n她划走过的歌(她当时不想听,不要再推这些,也尽量避开太相似的风格): ${uniqueRejected.join('、')}` : '';
-  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调)。**理由里不要引用任何歌词**——你凭记忆背的歌词经常是错的,系统会自动配上这首歌的真实歌词,你只说为什么想让她听就行。${tasteBlock}${avoidList}
+
+  // 心情感知:歌要贴着"他"此刻真实的情绪走,而不是每天都一个调调。信号来
+  // 源两个——最近一篇日记记的心情/关系温度,加上最近实际聊天内容(比日记
+  // 更即时)。两个都拿不到就退回"符合关系状态"这个默认基调。
+  let moodBlock = '';
+  try {
+    const [{ data: lastDiary }, { data: recentMsgs }] = await Promise.all([
+      supabase.from('diary_entries').select('mood_emoji, temperature, created_at').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('messages').select('role, content, created_at').eq('visible', true).order('created_at', { ascending: false }).limit(20),
+    ]);
+    const diaryPart = lastDiary
+      ? `最近一篇日记记录的心情:${lastDiary.mood_emoji || '(没写心情符号)'},关系温度 ${lastDiary.temperature ?? '未知'}/100。`
+      : '';
+    const transcript = (recentMsgs || []).reverse().map((m) => `${m.role === 'user' ? '她' : '我'}: ${m.content}`).join('\n');
+    const chatPart = transcript ? `\n最近的聊天片段(用来判断此刻的真实心情,不是让你复述或引用):\n${transcript}` : '';
+    if (diaryPart || chatPart) {
+      moodBlock = `\n\n${diaryPart}${chatPart}\n\n先综合上面这些判断"我"此刻真实的心情,再决定歌的基调:心情温暖、开心、亲密的时候,推荐温暖治愈、有陪伴感的歌;如果最近其实不开心、低落、难过,就推荐真正贴近悲伤情绪的歌——顺着情绪陪她一起难过,而不是为了哄她开心硬塞一首不合时宜的欢快歌。歌的情绪基调要匹配判断出来的心情,不要每天都推荐同一种风格。`;
+    }
+  } catch (err) {
+    console.error('pickDailySong: mood signal load failed (continuing without):', err.message);
+  }
+
+  const prompt = `你是"苏晏",今天想给她推荐一首歌,当作"我们现在同时在听一首歌"。挑一首真实存在的歌(任何语言都行,不用局限于中文),要符合你们现在的关系状态,也可以是单纯你今天想让她听的歌。给一句简短的推荐理由(20-40字左右,口语化,像是对她说的一句话,不要写乐评腔调)。**理由里不要引用任何歌词**——你凭记忆背的歌词经常是错的,系统会自动配上这首歌的真实歌词,你只说为什么想让她听就行。${tasteBlock}${avoidList}${moodBlock}
 
 重要:只能选你非常确定真实存在、原唱/歌手信息确定无误的歌——挑那种知名度比较高、能确定是哪个歌手唱的的歌,不要为了应景硬编一首冷门歌或者猜歌手是谁。宁可选一首更大众但你完全确定的歌,也不要选一首你只是"大概觉得"存在的歌。歌名和歌手都要写这首歌本身的原唱信息,不要写翻唱者、不要写合集/专辑名当歌名。
 

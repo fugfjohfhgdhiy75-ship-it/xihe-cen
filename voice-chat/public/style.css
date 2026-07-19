@@ -876,12 +876,23 @@ h1 {
 /* Centered, occasional — dropped into the message stream (not attached to
    any one bubble) only when there's been a real gap since the last
    message, same convention as WeChat/iMessage. See maybeInsertTimeDivider
-   in app.js. */
+   in app.js. Plain small gray text (the first version) is what those
+   apps show against their own plain white/gray chat background — but
+   this app sits on top of a busy custom photo, so instead this follows
+   Telegram's approach for exactly that situation: a small dark
+   translucent capsule behind the time, independent of whatever's behind
+   it, rather than relying on the background being any particular
+   brightness. */
 .time-divider {
   align-self: center;
-  font-size: 11px;
-  color: var(--text-faint);
-  margin: 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(255,255,255,0.95);
+  background: rgba(0,0,0,0.45);
+  padding: 3px 12px;
+  border-radius: 999px;
+  margin: 8px 0 6px;
 }
 
 .bubble .bubble-actions {
