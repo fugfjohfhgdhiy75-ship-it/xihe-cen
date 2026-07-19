@@ -75,6 +75,13 @@ alter table settings add column if not exists assistant_text_color text;
 alter table settings add column if not exists font_zh text;
 alter table settings add column if not exists font_en text;
 
+-- 配色推荐(同一卡片):user_bubble_color / assistant_bubble_color 是气泡
+-- 背景色,rgba()/rgb()/hex 均可(需要透明度才能保持磨砂玻璃质感)。这两列和
+-- 上面的 *_text_color 一起,由"配色推荐"预设一次性写入四个值,让气泡颜色和
+-- 字体颜色搭配好,而不是像手动拾色器那样只改字体颜色、容易和玻璃/背景图打架。
+alter table settings add column if not exists user_bubble_color text;
+alter table settings add column if not exists assistant_bubble_color text;
+
 -- 语音条(微信式):audio_url 是录音/合成语音文件,is_voice 标记这条消息
 -- 以语音条形式展示;proactive 标记"他主动发起"的消息(用于控制频率)
 alter table messages add column if not exists audio_url text;

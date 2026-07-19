@@ -656,6 +656,60 @@ h1 {
   text-transform: uppercase;
 }
 
+/* 配色推荐 — named palette presets, each setting bubble tint + text color
+   together so they're never picked in isolation (that's what used to make
+   a manually-chosen text color clash with the glass bubble/background). */
+.palette-group {
+  margin-top: 6px;
+}
+
+.palette-group-label {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.palette-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.palette-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  width: 58px;
+}
+
+.palette-swatch-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.7);
+  box-shadow: 0 1px 5px rgba(0,0,0,0.18), inset 0 0 0 1px rgba(0,0,0,0.06);
+  background:
+    linear-gradient(135deg, var(--pv-user, #b2cdeb) 50%, transparent 50%),
+    linear-gradient(135deg, transparent 50%, var(--pv-assistant, #fff) 50%);
+}
+
+.palette-swatch.active .palette-swatch-preview {
+  border-color: var(--accent, #4a90d9);
+  box-shadow: 0 0 0 2px var(--accent, #4a90d9), 0 1px 5px rgba(0,0,0,0.18);
+}
+
+.palette-swatch-name {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1.2;
+}
+
 /* 纪念册 confirm card in chat + list on Home */
 .milestone-confirm {
   align-self: center;
@@ -771,7 +825,7 @@ h1 {
   flex-direction: column;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   animation: rise 0.2s ease-out;
-  background: rgba(255,255,255,0.2);
+  background: var(--assistant-bubble-bg, rgba(255,255,255,0.2));
   border: 1px solid rgba(255,255,255,0.4);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -790,7 +844,7 @@ h1 {
 
 .bubble.user {
   align-self: flex-end;
-  background: rgba(178,205,235,0.2);
+  background: var(--user-bubble-bg, rgba(178,205,235,0.2));
 }
 
 .bubble.assistant {
@@ -1571,14 +1625,17 @@ body.chat-bg-on.chat-bg-light {
 }
 
 /* Bubble surfaces/user-text hardcode their colors, so the variable flip
-   above doesn't reach them — mirror it explicitly. */
+   above doesn't reach them — mirror it explicitly. A saved 配色推荐 preset
+   (or manual color) sets --assistant-bubble-bg/--user-bubble-bg on the
+   root and wins over these dark/light theme defaults via the var()
+   fallback. */
 body.chat-bg-on.chat-bg-dark .bubble {
-  background: rgba(34, 38, 46, 0.4);
+  background: var(--assistant-bubble-bg, rgba(34, 38, 46, 0.4));
   border-color: rgba(255, 255, 255, 0.14);
 }
 
 body.chat-bg-on.chat-bg-dark .bubble.user {
-  background: rgba(56, 84, 120, 0.45);
+  background: var(--user-bubble-bg, rgba(56, 84, 120, 0.45));
 }
 
 body.chat-bg-on.chat-bg-dark .voice-bar {
@@ -1587,12 +1644,12 @@ body.chat-bg-on.chat-bg-dark .voice-bar {
 }
 
 body.chat-bg-on.chat-bg-light .bubble {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--assistant-bubble-bg, rgba(255, 255, 255, 0.3));
   border-color: rgba(255, 255, 255, 0.45);
 }
 
 body.chat-bg-on.chat-bg-light .bubble.user {
-  background: rgba(178, 205, 235, 0.32);
+  background: var(--user-bubble-bg, rgba(178, 205, 235, 0.32));
 }
 
 /* No hardcoded .bubble.user .bubble-text color override here on purpose —

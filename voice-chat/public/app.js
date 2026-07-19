@@ -404,6 +404,12 @@ async function loadSettings() {
     fontEnSelectEl.value = data.font_en || '';
     applyChatBg(data.chat_bg_url || null, data.chat_bg_night_url || null);
     applyTextColors();
+    const matchedPalette = COLOR_PALETTES.find((p) =>
+      p.assistantText === data.assistant_text_color &&
+      p.userText === data.user_text_color &&
+      p.assistantBubble === data.assistant_bubble_color &&
+      p.userBubble === data.user_bubble_color);
+    updatePaletteActiveState(matchedPalette ? matchedPalette.id : null);
     renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
@@ -848,7 +854,103 @@ function applyTextColors() {
   const fontStack = [currentSettings.font_en, currentSettings.font_zh].filter(Boolean).join(', ');
   if (fontStack) root.style.setProperty('--chat-font-family', fontStack);
   else root.style.removeProperty('--chat-font-family');
+
+  const assistantBubble = currentSettings.assistant_bubble_color;
+  if (assistantBubble) root.style.setProperty('--assistant-bubble-bg', assistantBubble);
+  else root.style.removeProperty('--assistant-bubble-bg');
+
+  const userBubble = currentSettings.user_bubble_color;
+  if (userBubble) root.style.setProperty('--user-bubble-bg', userBubble);
+  else root.style.removeProperty('--user-bubble-bg');
 }
+
+// ---- 配色推荐 (palette presets) ----
+// 手动拾色器只挑文字颜色,容易挑出一个和磨砂玻璃气泡/背景图打架的颜色(比如
+// 一个孤立的棕色字)。这里每个预设把气泡底色和文字颜色一起定好、同一色系
+// 搭配,点一下就四个值全套应用,不用自己试。浅色系配浅色/白天背景,深色系配
+// 深色/夜间背景或深色自定义背景图。
+const COLOR_PALETTES = [
+  { id: 'peach-oolong', name: '蜜桃乌龙', series: 'light',
+    assistantText: '#7a4a30', userText: '#6b3410',
+    assistantBubble: 'rgba(255,214,189,0.35)', userBubble: 'rgba(255,178,140,0.4)' },
+  { id: 'oat-latte', name: '燕麦奶咖', series: 'light',
+    assistantText: '#5c4a3a', userText: '#4a3423',
+    assistantBubble: 'rgba(238,227,210,0.4)', userBubble: 'rgba(205,176,145,0.42)' },
+  { id: 'mint-glow', name: '薄荷微光', series: 'light',
+    assistantText: '#2f6b58', userText: '#1f5443',
+    assistantBubble: 'rgba(214,240,230,0.4)', userBubble: 'rgba(176,224,205,0.42)' },
+  { id: 'sakura-soft', name: '樱花软调', series: 'light',
+    assistantText: '#8a4a63', userText: '#7a2f4f',
+    assistantBubble: 'rgba(255,224,232,0.38)', userBubble: 'rgba(255,195,210,0.42)' },
+  { id: 'dusk-purple', name: '暮山紫', series: 'dark',
+    assistantText: '#d8c8f0', userText: '#e8d8ff',
+    assistantBubble: 'rgba(58,46,74,0.45)', userBubble: 'rgba(90,66,120,0.5)' },
+  { id: 'deep-sea-ink', name: '深海墨蓝', series: 'dark',
+    assistantText: '#bcdcff', userText: '#d0e8ff',
+    assistantBubble: 'rgba(24,38,56,0.45)', userBubble: 'rgba(38,66,100,0.5)' },
+  { id: 'cocoa-mocha', name: '可可摩卡', series: 'dark',
+    assistantText: '#e8c9a8', userText: '#f0d8b8',
+    assistantBubble: 'rgba(50,38,32,0.45)', userBubble: 'rgba(80,56,40,0.5)' },
+  { id: 'pine-ink-green', name: '松林墨绿', series: 'dark',
+    assistantText: '#b8e0c8', userText: '#cdeed8',
+    assistantBubble: 'rgba(24,42,36,0.45)', userBubble: 'rgba(36,62,50,0.5)' },
+];
+
+function updatePaletteActiveState(activeId) {
+  document.querySelectorAll('.palette-swatch').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.paletteId === activeId);
+  });
+}
+
+async function applyPalette(p) {
+  await patchSettings({
+    assistant_text_color: p.assistantText,
+    user_text_color: p.userText,
+    assistant_bubble_color: p.assistantBubble,
+    user_bubble_color: p.userBubble,
+  });
+  assistantColorPicker.setHex(p.assistantText);
+  userColorPicker.setHex(p.userText);
+  applyTextColors();
+  updatePaletteActiveState(p.id);
+  chatStyleStatusEl.textContent = `已应用配色:${p.name}`;
+}
+
+function renderPaletteRows() {
+  const rows = { light: document.getElementById('paletteRowLight'), dark: document.getElementById('paletteRowDark') };
+  for (const p of COLOR_PALETTES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'palette-swatch';
+    btn.dataset.paletteId = p.id;
+    const preview = document.createElement('span');
+    preview.className = 'palette-swatch-preview';
+    preview.style.setProperty('--pv-assistant', p.assistantBubble);
+    preview.style.setProperty('--pv-user', p.userBubble);
+    const label = document.createElement('span');
+    label.className = 'palette-swatch-name';
+    label.textContent = p.name;
+    btn.appendChild(preview);
+    btn.appendChild(label);
+    btn.addEventListener('click', () => applyPalette(p));
+    rows[p.series].appendChild(btn);
+  }
+}
+renderPaletteRows();
+
+document.getElementById('paletteResetAll').addEventListener('click', async () => {
+  await patchSettings({
+    assistant_text_color: null,
+    user_text_color: null,
+    assistant_bubble_color: null,
+    user_bubble_color: null,
+  });
+  assistantColorPicker.setHex('#3a3a3a');
+  userColorPicker.setHex('#1f4a73');
+  applyTextColors();
+  updatePaletteActiveState(null);
+  chatStyleStatusEl.textContent = '已恢复默认配色';
+});
 
 // ---- Model / API overrides ----
 

@@ -793,6 +793,10 @@ app.put('/api/settings', async (req, res) => {
   // 存 null(等于"用默认"),不让脏值混进 CSS 自定义属性里。
   const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
   const FONT_STACK_RE = /^[a-zA-Z0-9 ,'"-]{0,150}$/;
+  // rgba()/rgb()/hex — bubble tints need alpha (translucent, to keep the
+  // frosted-glass look) so a plain hex-only check like the text colors'
+  // isn't enough here.
+  const BUBBLE_COLOR_RE = /^(rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\)|#[0-9a-f]{6}|#[0-9a-f]{8})$/i;
   if (req.body.user_text_color !== undefined) {
     const v = (req.body.user_text_color || '').trim();
     update.user_text_color = HEX_COLOR_RE.test(v) ? v : null;
@@ -800,6 +804,14 @@ app.put('/api/settings', async (req, res) => {
   if (req.body.assistant_text_color !== undefined) {
     const v = (req.body.assistant_text_color || '').trim();
     update.assistant_text_color = HEX_COLOR_RE.test(v) ? v : null;
+  }
+  if (req.body.user_bubble_color !== undefined) {
+    const v = (req.body.user_bubble_color || '').trim();
+    update.user_bubble_color = BUBBLE_COLOR_RE.test(v) ? v : null;
+  }
+  if (req.body.assistant_bubble_color !== undefined) {
+    const v = (req.body.assistant_bubble_color || '').trim();
+    update.assistant_bubble_color = BUBBLE_COLOR_RE.test(v) ? v : null;
   }
   if (req.body.font_zh !== undefined) {
     const v = (req.body.font_zh || '').trim();
