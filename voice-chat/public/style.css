@@ -691,6 +691,61 @@ h1 {
   color: var(--text-faint);
 }
 
+/* 表情包收藏 — one section per named/custom-styled set, 微信"表情收藏"式 */
+.sticker-sets-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 8px 0;
+}
+
+.sticker-set {
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.sticker-set.active {
+  border-color: rgba(90, 150, 220, 0.6);
+}
+
+.sticker-set-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.sticker-set-name {
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.sticker-set-activate.active {
+  opacity: 0.6;
+}
+
+.sticker-new-set {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.sticker-new-set input,
+.sticker-new-set textarea {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.5);
+  resize: vertical;
+}
+
 /* 聊天字体与颜色 — HSV color picker (对方/我的文字颜色) */
 .style-color-item {
   display: flex;

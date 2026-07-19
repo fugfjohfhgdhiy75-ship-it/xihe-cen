@@ -369,10 +369,13 @@
           </div>
 
           <div class="card more-card">
-            <label>表情包(聊天时他可能会发一套固定的反应表情)</label>
-            <div id="stickerGrid" class="sticker-grid"></div>
-            <button id="stickerGenerateBtn" class="mini-btn">生成一套表情包</button>
-            <button id="stickerRegenerateBtn" class="mini-btn milestone-no">换个风格,全部重新生成</button>
+            <label>表情包收藏(聊天时他可能会发一套固定的反应表情,可以存好几套不同风格,自己挑一套"使用中")</label>
+            <div id="stickerSetsContainer" class="sticker-sets-container"></div>
+            <div class="sticker-new-set">
+              <input id="stickerSetName" type="text" maxlength="20" placeholder="给这套起个名字,比如"卡通猫咪"" />
+              <textarea id="stickerSetStyle" rows="2" placeholder="描述想要的风格,比如"极简卡通猫咪吉祥物,扁平插画风"(留空则用默认猫咪风格)"></textarea>
+              <button id="stickerSetCreateBtn" class="mini-btn">生成新的一套</button>
+            </div>
             <div id="stickerStatus" class="doc-status"></div>
           </div>
 

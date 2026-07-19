@@ -1645,12 +1645,12 @@ async function generateMinimaxImage(sessionId, prompt) {
   return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-// 表情包 — a small *pre-generated* set of fixed reaction stickers, not to
-// be confused with generateMinimaxImage above (which paints a fresh scene
-// every time). The model picks one by tag via a [表情:tag] marker; the
-// server just looks the tag up and attaches the already-generated image,
-// no live MiniMax call and no auto-image cooldown involved. Generated
-// once (or re-generated one at a time) from the More page.
+// 表情包 — small *pre-generated* sets of fixed reaction stickers, not to be
+// confused with generateMinimaxImage above (which paints a fresh scene
+// every time). She can keep several named sets around (see sticker_sets
+// below, 微信"表情收藏"式) but only one is ever "使用中" — the model picks a
+// tag via a [表情:tag] marker and the server looks it up only within that
+// active set, no live MiniMax call and no auto-image cooldown involved.
 const STICKER_SCENE_HINTS = {
   害羞: '脸红害羞,双手捂脸,眼睛弯成月牙,尴尬又开心的表情',
   笑哭: '笑到流眼泪,张嘴大笑,一手扶额',
@@ -1677,16 +1677,17 @@ const STICKER_SLUGS = {
   早安: 'good-morning', 撒娇: 'acting-cute',
 };
 
-async function generateStickerImage(tag) {
+// Fallback style used when a set has no style_prompt of its own — this is
+// exactly the cartoon-cat-mascot description from her first "极简" request,
+// kept as the default so the pre-existing "第一套" (which was migrated in
+// with style_prompt = null) keeps generating consistently if she ever
+// retries/regenerates it without having to retype the description.
+const DEFAULT_STICKER_STYLE_DESC = '一只可爱的卡通猫咪吉祥物,极简扁平插画风格,线条简洁干净,色块配色,圆润可爱的猫咪形象';
+
+async function generateStickerImage(tag, stylePrompt) {
   const scene = STICKER_SCENE_HINTS[tag] || tag;
-  // Her call after seeing the first batch (a Q版 illustrated version of
-  // his own appearance): too busy/came out looking off — she asked for
-  // something simpler instead, a cartoon cat mascot standing in for him
-  // rather than an illustrated likeness. No photo_appearance/reference
-  // injection here on purpose — a cat mascot doesn't need his human
-  // description or face reference, and keeping those out of the prompt
-  // is exactly what makes this simpler than the first attempt.
-  const prompt = `一只可爱的卡通猫咪吉祥物,${scene}。极简扁平插画风格,线条简洁干净,色块配色,纯色背景,圆润可爱的猫咪形象,适合做聊天表情包,不要任何文字。`;
+  const style = (stylePrompt && stylePrompt.trim()) || DEFAULT_STICKER_STYLE_DESC;
+  const prompt = `${style},${scene}。适合做聊天表情包的贴纸插画,构图简洁,纯色或简单背景,不要任何文字。`;
 
   const body = {
     model: MINIMAX_IMAGE_MODEL,
@@ -1721,11 +1722,22 @@ async function generateStickerImage(tag) {
   return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-app.get('/api/stickers', async (req, res) => {
+// 表情包收藏 — 微信"表情收藏"那种形式:好几套表情包并存,每套自己的名字和
+// 风格提示词,互不覆盖。同一时间只有一套"使用中"(is_active),聊天发表情
+// 只从这一套里挑。GET 把每套连同它的表情图一起返回,前端按套分区块渲染。
+app.get('/api/sticker-sets', async (req, res) => {
   if (!requireSupabase(res)) return;
-  const { data, error } = await supabase.from('stickers').select('*').order('created_at', { ascending: true });
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json(data || []);
+  const [{ data: sets, error: setsErr }, { data: stickers, error: stickersErr }] = await Promise.all([
+    supabase.from('sticker_sets').select('*').order('created_at', { ascending: true }),
+    supabase.from('stickers').select('*').order('created_at', { ascending: true }),
+  ]);
+  if (setsErr) { res.status(500).json({ error: setsErr.message }); return; }
+  if (stickersErr) { res.status(500).json({ error: stickersErr.message }); return; }
+  const result = (sets || []).map((s) => ({
+    ...s,
+    stickers: (stickers || []).filter((st) => st.set_id === s.id),
+  }));
+  res.json(result);
 });
 
 app.delete('/api/stickers/:id', async (req, res) => {
@@ -1735,12 +1747,86 @@ app.delete('/api/stickers/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-// One-off SSE batch job (10 sequential MiniMax calls take a while) —
-// skips tags she already has unless force is set, so re-running after
-// adding one new tag doesn't waste money regenerating everything.
-app.post('/api/stickers/generate-set', async (req, res) => {
+app.post('/api/sticker-sets/:id/activate', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const id = Number(req.params.id);
+  const { error: offErr } = await supabase.from('sticker_sets').update({ is_active: false }).neq('id', id);
+  if (offErr) { res.status(500).json({ error: offErr.message }); return; }
+  const { data, error } = await supabase.from('sticker_sets').update({ is_active: true }).eq('id', id).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+app.delete('/api/sticker-sets/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { error } = await supabase.from('sticker_sets').delete().eq('id', req.params.id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
+});
+
+// Shared by both generation routes below — 10 sequential MiniMax calls take
+// a while, so each tag's outcome streams back as its own SSE event instead
+// of waiting for the whole batch.
+async function generateSetStickers(setId, stylePrompt, tags, send) {
+  let doneCount = 0;
+  let failCount = 0;
+  for (const tag of tags) {
+    send({ tag, status: 'generating' });
+    try {
+      const url = await generateStickerImage(tag, stylePrompt);
+      const { data: row, error } = await supabase.from('stickers').insert({ tag, image_url: url, set_id: setId }).select().single();
+      if (error) throw new Error(error.message);
+      doneCount++;
+      send({ tag, status: 'done', sticker: row });
+    } catch (err) {
+      failCount++;
+      console.error('sticker generation failed for', tag, ':', err.message);
+      send({ tag, status: 'failed', error: err.message });
+    }
+  }
+  return { doneCount, failCount };
+}
+
+// 新建一整套:自己的名字 + 风格提示词(比如"极简卡通猫咪吉祥物"或者"Q版
+// 本人大头插画"),10 个默认 tag 依次画进这一套,不动其他已有的套。
+app.post('/api/sticker-sets/generate', async (req, res) => {
   if (!requireSupabase(res)) return;
   if (!AUTO_IMAGE_READY) { res.status(501).json({ error: 'MiniMax 没配置(缺 MINIMAX_API_KEY / MINIMAX_GROUP_ID)' }); return; }
+  const name = ((req.body && req.body.name) || '').trim();
+  const stylePrompt = ((req.body && req.body.stylePrompt) || '').trim();
+  if (!name) { res.status(400).json({ error: '请给这套表情包起个名字' }); return; }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  let ended = false;
+  const send = (payload) => { if (!ended && !res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`); };
+  const keepalive = setInterval(() => { if (!ended && !res.writableEnded) res.write(': ping\n\n'); }, 15000);
+  const finish = () => { clearInterval(keepalive); if (!ended && !res.writableEnded) { ended = true; res.end(); } };
+
+  try {
+    const { data: setRow, error: setErr } = await supabase
+      .from('sticker_sets')
+      .insert({ name, style_prompt: stylePrompt || null })
+      .select()
+      .single();
+    if (setErr) throw new Error(setErr.message);
+    send({ total: DEFAULT_STICKER_TAGS.length, set: setRow });
+    const { doneCount, failCount } = await generateSetStickers(setRow.id, stylePrompt, DEFAULT_STICKER_TAGS, send);
+    send({ done: true, doneCount, failCount });
+  } catch (err) {
+    send({ error: err.message });
+  }
+  finish();
+});
+
+// 补齐/重画某一套已有的:用这套自己存的 style_prompt,不用重新输入。
+// force=true 先删掉这一套里已有的图再全部重画;不传 force 只画还缺的 tag。
+app.post('/api/sticker-sets/:id/regenerate', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  if (!AUTO_IMAGE_READY) { res.status(501).json({ error: 'MiniMax 没配置(缺 MINIMAX_API_KEY / MINIMAX_GROUP_ID)' }); return; }
+  const setId = Number(req.params.id);
   const force = Boolean(req.body && req.body.force);
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -1753,23 +1839,18 @@ app.post('/api/stickers/generate-set', async (req, res) => {
   const finish = () => { clearInterval(keepalive); if (!ended && !res.writableEnded) { ended = true; res.end(); } };
 
   try {
-    const { data: existing } = await supabase.from('stickers').select('tag');
+    const { data: setRow, error: setErr } = await supabase.from('sticker_sets').select('*').eq('id', setId).single();
+    if (setErr) throw new Error(setErr.message);
+    if (force) {
+      const { error: delErr } = await supabase.from('stickers').delete().eq('set_id', setId);
+      if (delErr) throw new Error(delErr.message);
+    }
+    const { data: existing } = await supabase.from('stickers').select('tag').eq('set_id', setId);
     const existingTags = new Set((existing || []).map((s) => s.tag));
     const tags = DEFAULT_STICKER_TAGS.filter((t) => force || !existingTags.has(t));
     send({ total: tags.length });
-    for (const tag of tags) {
-      send({ tag, status: 'generating' });
-      try {
-        const url = await generateStickerImage(tag);
-        const { data: row, error } = await supabase.from('stickers').upsert({ tag, image_url: url }, { onConflict: 'tag' }).select().single();
-        if (error) throw new Error(error.message);
-        send({ tag, status: 'done', sticker: row });
-      } catch (err) {
-        console.error('sticker generation failed for', tag, ':', err.message);
-        send({ tag, status: 'failed', error: err.message });
-      }
-    }
-    send({ done: true });
+    const { doneCount, failCount } = await generateSetStickers(setId, setRow.style_prompt, tags, send);
+    send({ done: true, doneCount, failCount });
   } catch (err) {
     send({ error: err.message });
   }
@@ -2068,7 +2149,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
       getTodayDiaryBlock(),
-      supabase.from('stickers').select('tag'),
+      supabase.from('stickers').select('tag, sticker_sets!inner(is_active)').eq('sticker_sets.is_active', true),
     ]);
     const stickerTags = (stickerRows || []).map((s) => s.tag);
 
@@ -2268,7 +2349,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       text = (text.slice(0, stickerMatch.index) + text.slice(stickerMatch.index + stickerMatch[0].length)).trim();
       if (!imageUrl) {
         const wantedTag = stickerMatch[1].trim();
-        const { data: stickerRow } = await supabase.from('stickers').select('image_url').eq('tag', wantedTag).maybeSingle();
+        const { data: stickerRow } = await supabase.from('stickers').select('image_url, sticker_sets!inner(is_active)').eq('sticker_sets.is_active', true).eq('tag', wantedTag).maybeSingle();
         if (stickerRow) imageUrl = stickerRow.image_url;
         else console.log('sticker: unknown tag requested, skipping:', wantedTag);
       }
