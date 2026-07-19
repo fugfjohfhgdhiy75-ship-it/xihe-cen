@@ -1395,6 +1395,11 @@ body.chat-bg-on.chat-bg-dark {
   --text-body: rgba(255, 255, 255, 0.88);
   --text-dim: rgba(255, 255, 255, 0.6);
   --text-faint: rgba(255, 255, 255, 0.45);
+  /* Accent icons (leaf, mic, active tab, play controls) flip to white on
+     dark artwork — the blue mudded into it. Light backgrounds keep the
+     blue via chat-bg-light below. */
+  --accent: rgba(255, 255, 255, 0.95);
+  --accent-soft: rgba(255, 255, 255, 0.22);
   /* iOS dark-material style: a neutral, fairly translucent dark tint —
      the artwork glows through the blur instead of being blocked by an
      opaque navy slab. */
@@ -1402,6 +1407,15 @@ body.chat-bg-on.chat-bg-dark {
   --glass-strong: rgba(38, 42, 50, 0.44);
   --glass-border: rgba(255, 255, 255, 0.12);
   --border: rgba(255, 255, 255, 0.12);
+}
+
+/* Solid action pills (发送 / 记下来 / …) use the accent as their FILL
+   with white text — those keep the brand blue in dark mode, otherwise
+   the accent flip above would make them white-on-white. */
+body.chat-bg-on.chat-bg-dark .send-btn,
+body.chat-bg-on.chat-bg-dark .mini-btn,
+body.chat-bg-on.chat-bg-dark .diary-reply-send {
+  background: #5ba0d0;
 }
 
 /* iOS-style dark glass for the big chrome surfaces: more blur plus
