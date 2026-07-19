@@ -2477,6 +2477,12 @@ function renderDiaryEntry(entry) {
     input.className = 'diary-reply-input';
     input.type = 'text';
     input.placeholder = '回复这篇日记...';
+    // Without this, iOS treats a bare text field as a possible name/contact
+    // entry and pops its own "自动填充联系人" AutoFill suggestion strip above
+    // the keyboard — a native row we don't control, sitting outside our own
+    // layout. Every other input in the app already sets this; this one was
+    // just missed because it's built in JS instead of static HTML.
+    input.autocomplete = 'off';
     const replyBtn = document.createElement('button');
     replyBtn.className = 'diary-reply-send';
     replyBtn.type = 'button';
