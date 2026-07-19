@@ -1452,6 +1452,39 @@ async function inferPhotoDescription(userMessage, replyText) {
   }
 }
 
+// Normal chat replies are meant to stay short (max_tokens: 1024 below is
+// plenty for a conversational message), but when she explicitly asks for
+// a long-form piece — "字数拉满"/"三千字"/"写一篇小说" — that same cap would
+// truncate it mid-sentence. Detect an explicit ask and raise the ceiling
+// for just that one turn; raising max_tokens costs nothing when the reply
+// doesn't need it (Anthropic only bills actually-generated tokens), so
+// there's no downside to being generous here.
+const CN_WORDCOUNT_MAP = {
+  '一千': 1000, '两千': 2000, '二千': 2000, '三千': 3000, '四千': 4000,
+  '五千': 5000, '六千': 6000, '七千': 7000, '八千': 8000, '九千': 9000,
+  '一万': 10000, '两万': 20000,
+};
+const LONG_FORM_HINT_RE = /拉满字数|字数拉满|全文写完|写完整篇|从头到尾.{0,10}写|写(一)?[篇部]小说|写(一)?[篇部]长文/;
+
+function tokensForChars(chars) {
+  // ~1.2 CJK characters per Claude token is a deliberately generous (i.e.
+  // over-)estimate, plus a flat buffer for wrap-up sentences/punctuation,
+  // floored/ceilinged so a typo'd huge number or a vague ask doesn't
+  // request something absurd or pointlessly small.
+  return Math.min(8000, Math.max(2500, Math.ceil(chars / 1.2) + 300));
+}
+
+function detectLongFormMaxTokens(text) {
+  if (!text) return null;
+  const numMatch = text.match(/(\d{3,6})\s*字/);
+  if (numMatch) return tokensForChars(Number(numMatch[1]));
+  for (const [cn, chars] of Object.entries(CN_WORDCOUNT_MAP)) {
+    if (text.includes(cn + '字')) return tokensForChars(chars);
+  }
+  if (LONG_FORM_HINT_RE.test(text)) return 4500;
+  return null;
+}
+
 app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'voice', maxCount: 1 }]), async (req, res) => {
   const sessionId = req.body.sessionId;
   let message = req.body.message || '';
@@ -1612,7 +1645,15 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     // saying "vary it," since vague instructions weren't enough to break
     // the habit once it starts repeating within one conversation.
     systemParts.push('留意几个已经开始变成口头禅的习惯,不要再用:句子开头老是"我发现......""说实话......""其实......""老实说......"这种固定开场;还有把一句话切成好几个逗号短句、每个短句语气差不多、听起来像在按同一个节拍念稿子。正常说话该长句就长句,该一个字带过就一个字带过,逗号什么时候断句是随内容自然发生的,不是套路。开口前想一下:这句话如果是脱口而出的,会长这样吗?');
-    systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
+    // She explicitly asked: normal chat should stay a few hundred
+    // characters, but if she says something like "字数拉满"/"三千字" for a
+    // story, it should actually write that much in one go — not fall back
+    // to the short-reply habit above, which is for casual chat only.
+    const lastUserHistoryMsg = [...(history || [])].reverse().find((m) => m.role === 'user');
+    const longFormMaxTokens = detectLongFormMaxTokens((lastUserHistoryMsg && lastUserHistoryMsg.content) || message);
+    if (longFormMaxTokens) {
+      systemParts.push('她这次明确要你写一篇有字数要求的长内容(比如小说、长文),这种情况下不适用上面"日常对话要简短"的原则——按她要求的篇幅老老实实一次性写完整,不要写几段就收手,也不要中途说"后面我接着写"这种话敷衍过去。');
+    }
     if (voiceMode) {
       systemParts.push('她刚才这条是语音说的(下面是转写的文字)。照常回复就行,想听的话她会点播放。');
     }
@@ -1640,7 +1681,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
 
     const claudeMessage = await createMessageWithRetry({
       model: currentModel(),
-      max_tokens: 1024,
+      max_tokens: longFormMaxTokens || 1024,
       system,
       messages,
     });
