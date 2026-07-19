@@ -749,6 +749,15 @@ h1 {
   opacity: 0.7;
 }
 
+/* Auto-recorded (score > 6, see [记:分数|内容] in server.js) — a
+   heads-up-with-undo rather than a question, so it gets a calmer,
+   already-settled look (small accent-colored left bar) instead of the
+   plain neutral card used for the (now rare, fallback-only) ask-first
+   case above. */
+.milestone-recorded {
+  border-left: 3px solid var(--accent);
+}
+
 .milestone-list {
   display: flex;
   flex-direction: column;

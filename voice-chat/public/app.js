@@ -1594,6 +1594,42 @@ function showMilestoneConfirm(pending) {
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
 
+// She asked to drop the ask-first step entirely for anything he scores
+// high enough (see the [记:分数|内容] marker, server-side) — it's already
+// saved as 'confirmed' by the time this card shows up, so this is just a
+// heads-up with an undo, not a confirmation. Same visual family as the
+// card above (milestone-confirm), styled slightly differently (see CSS)
+// so the two read as distinct even though the actions row is now just one
+// button instead of two.
+function showMilestoneRecorded(recorded) {
+  const card = document.createElement('div');
+  card.className = 'milestone-confirm milestone-recorded';
+  const label = document.createElement('div');
+  label.className = 'milestone-confirm-text';
+  label.textContent = '📌 已经记进纪念册:「' + recorded.content + '」';
+  const row = document.createElement('div');
+  row.className = 'milestone-confirm-actions';
+  const delBtn = document.createElement('button');
+  delBtn.className = 'mini-btn milestone-no';
+  delBtn.textContent = '删除';
+  delBtn.addEventListener('click', async () => {
+    delBtn.disabled = true;
+    try {
+      await fetch('/api/milestones/' + recorded.id, { method: 'DELETE' });
+      label.textContent = '已删除:「' + recorded.content + '」';
+      row.remove();
+    } catch (err) {
+      delBtn.disabled = false;
+      statusText.textContent = '删除失败: ' + err.message;
+    }
+  });
+  row.appendChild(delBtn);
+  card.appendChild(label);
+  card.appendChild(row);
+  transcriptEl.appendChild(card);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
 function attachImageToBubble(bubble, url) {
   if (!url) return;
   const grid = document.createElement('div');
@@ -1741,6 +1777,7 @@ async function regenerateReplyAfterEdit(messageId) {
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
+        if (payload.milestoneRecorded) showMilestoneRecorded(payload.milestoneRecorded);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
         handleFollowUpPayload(payload);
       }
@@ -1974,6 +2011,7 @@ async function sendMessage(rawText) {
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
+        if (payload.milestoneRecorded) showMilestoneRecorded(payload.milestoneRecorded);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
         handleFollowUpPayload(payload);
       }
@@ -2180,6 +2218,7 @@ async function sendVoiceMessage(blob, mime) {
         if (payload.voiceUrl) attachVoiceBar(assistantBubble, payload.voiceUrl);
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
+        if (payload.milestoneRecorded) showMilestoneRecorded(payload.milestoneRecorded);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
         handleFollowUpPayload(payload);
       }

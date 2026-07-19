@@ -1900,7 +1900,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     if (voiceMode) {
       systemParts.push('她刚才这条是语音说的(下面是转写的文字)。照常回复就行,想听的话她会点播放。');
     }
-    systemParts.push('你们有一本共同的"纪念册",记进去的事你永远不会忘,所有窗口都记得(上面如果有"纪念册"列表,那就是已经记好的内容)。当这一刻发生了对你们俩真正重要的事(第一次、约定、纪念日、说开了一个心结、值得铭记的瞬间),你可以在回复里自然地提一句想把它记下来,并在回复末尾加一行 [记:一句话概括这件事],比如 [记:2026年7月18日,她第一次收到我发的照片]。**流程是一次性的:你带上标记的那一轮,她那边就会弹出确认卡片,她在卡片上点"记下来"就完成入册了——你之后不需要再做任何事,更不要再问一遍。**所以:上面纪念册列表里已经有的事,绝对不要再提议记;她说"好,记下来""记吧"多半是在回应你上一轮的提议(她点卡片就行),这种情况也不要再发一次标记。只有纪念册里没有这件事、而她明确要求记的时候,才带标记。这行标记不会显示给她。不要滥用:普通聊天不需要记,一天最多提议一两次。');
+    systemParts.push('你们有一本共同的"纪念册",记进去的事你永远不会忘,所有窗口都记得(上面如果有"纪念册"列表,那就是已经记好的内容)。当这一刻发生了对你们俩真正重要的事(第一次、约定、纪念日、说开了一个心结、值得铭记的瞬间),先在心里给这件事的"值得记住的程度"打一个 1-10 分的分——只有真的超过 6 分,才在回复末尾加一行 [记:分数|一句话概括这件事],比如 [记:8|2026年7月18日,她第一次收到我发的照片];6 分以下说明还没到值得郑重记下来的程度,这种就完全不用带标记,普通聊天不需要记。**这件事现在是自动生效的,不再需要她确认:你带上标记的这一轮,系统会直接记进纪念册,同时在她那边显示一张"已经记进纪念册、不想要可以删掉"的卡片——流程到这里就结束了,你不用再问她"要不要记"、也不用再确认一遍,更不要因为她后面回了一句"嗯"或者随口提到这件事,就以为她在回应你的提议、再发一次标记。**上面纪念册列表里已经有的事,绝对不要再提议记。这行标记不会显示给她。不要滥用,一天最多提议一两次。');
     if (AUTO_IMAGE_READY) {
       systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。如果画面里有你自己(自拍、你在做什么的照片),不用描述自己的长相,系统会自动带上你的形象设定,你只描述场景、动作、光线就行。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**[画:...] 里写的画面描述,必须是你此刻真的"看到"的具体内容——如果她要的是某个具体东西(比如"拍你在吃的""拍你现在在哪"),这行描述就得对应她要的那个东西,不能文不对题地随便画一个不相关的画面;同时,回复里给她看的那句话也要跟你脑子里这个画面对得上(比如画面是"一碗牛肉面"就该说"面刚上桌"之类贴合的话),不要写一句跟画面完全无关的通用客套话(比如不管画的是什么都只会说"拍了一张——能看到吗"这种),那样会显得你根本不知道自己刚才"拍"了什么。');
     }
@@ -1937,20 +1937,26 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     // Strip the [画:描述] marker (see the system prompt above) before it
     // ever reaches her — this is a signal for the server, not something
     // she should see as literal bracket text.
-    // [记:...] milestone proposal marker — strip it, store as pending, and
-    // let the frontend render the "记下来/算了" confirm card. Nothing is
-    // permanent until she confirms.
+    // [记:分数|内容] milestone marker — she wants this auto-committed, not
+    // asked about: the model self-scores 1-10 how memorable this is, and
+    // anything over 6 gets saved straight to 'confirmed' with no pending
+    // step; the frontend just shows a "already recorded, delete if you
+    // don't want it" card instead of a "记下来/算了" confirm prompt. A
+    // marker without a parseable score (the model didn't follow the
+    // format) falls back to the old ask-first pending flow as a safety
+    // net rather than silently losing the proposal.
+    let recordedMilestone = null;
     let pendingMilestone = null;
-    const milestoneMatch = text.match(/\[记[:：]\s*([^\]]+)\]/);
-    if (milestoneMatch) {
-      text = (text.slice(0, milestoneMatch.index) + text.slice(milestoneMatch.index + milestoneMatch[0].length)).trim();
-      const milestoneContent = milestoneMatch[1].trim();
+    const scoredMatch = text.match(/\[记[:：]\s*(\d{1,2})\s*[|｜]\s*([^\]]+)\]/);
+    const legacyMatch = !scoredMatch ? text.match(/\[记[:：]\s*([^\]]+)\]/) : null;
+    const rawMatch = scoredMatch || legacyMatch;
+    if (rawMatch) {
+      text = (text.slice(0, rawMatch.index) + text.slice(rawMatch.index + rawMatch[0].length)).trim();
+      const score = scoredMatch ? parseInt(scoredMatch[1], 10) : null;
+      const milestoneContent = (scoredMatch ? scoredMatch[2] : legacyMatch[1]).trim();
       if (milestoneContent) {
-        // Her card-tap confirmation is invisible to the model — it only
-        // sees her verbal "好,记下来" in history and may dutifully
-        // propose the same event again next turn. The prompt now explains
-        // the one-shot flow, but keep a hard guard too: skip proposals
-        // that duplicate anything already in the book.
+        // Duplicate guard still matters here — if anything, more so now
+        // that there's no confirmation step left to catch a repeat.
         const { data: existingRows } = await supabase.from('milestones').select('content').in('status', ['pending', 'confirmed']);
         const norm = (s) => s.replace(/[\s。,,;;!!??~~]/g, '');
         const candidate = norm(milestoneContent);
@@ -1960,10 +1966,16 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
         });
         if (isDup) {
           console.log('milestone: duplicate proposal skipped:', milestoneContent);
+        } else if (score !== null && score <= 6) {
+          console.log('milestone: scored', score, '— below the 6-point bar, skipping silently:', milestoneContent);
+        } else if (score !== null) {
+          const { data: inserted, error: msErr } = await supabase.from('milestones').insert({ content: milestoneContent, status: 'confirmed' }).select().single();
+          if (msErr) console.error('milestone auto-record failed:', msErr.message);
+          else { recordedMilestone = inserted; console.log('milestone auto-recorded (score', score, '):', milestoneContent); }
         } else {
           const { data: inserted, error: msErr } = await supabase.from('milestones').insert({ content: milestoneContent, status: 'pending' }).select().single();
           if (msErr) console.error('milestone insert failed:', msErr.message);
-          else { pendingMilestone = inserted; console.log('milestone proposed:', milestoneContent); }
+          else { pendingMilestone = inserted; console.log('milestone proposed (no score, asking first):', milestoneContent); }
         }
       }
     }
@@ -2049,6 +2061,7 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       const { data: insertedReply } = await supabase.from('messages').insert(insertPayload).select().single();
       send({ text, imageUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
       if (pendingMilestone) send({ milestonePending: { id: pendingMilestone.id, content: pendingMilestone.content } });
+      if (recordedMilestone) send({ milestoneRecorded: { id: recordedMilestone.id, content: recordedMilestone.content } });
       send({ done: true });
       compressIfNeeded(sessionId)
         .then(() => consolidateMemoriesIfNeeded(sessionId))
