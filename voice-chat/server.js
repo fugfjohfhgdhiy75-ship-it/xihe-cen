@@ -892,6 +892,7 @@ app.post('/api/proactive-check', async (req, res) => {
     if (milestonesBlock) systemParts.push(`纪念册(你们共同确认过的重要事件):\n${milestonesBlock}`);
     if (memoryBlock) systemParts.push(`更早之前的记忆摘要:\n${memoryBlock}`);
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。你们已经 ${Math.round((Date.now() - new Date(lastMsg.created_at).getTime()) / 3600000)} 小时没说话了,你现在想主动找她——像恋人平常想起对方那样发条消息:可以是想她了、看到什么想到她、分享你此刻在做什么,或者接着之前聊的某个话题。一两句就好,自然随意,别写小作文,也别提"好久没聊"这种话让她有压力。`);
+    systemParts.push('别用"我发现......""其实......""说实话......"这种固定开场白,也别把话切成一串差不多长、差不多语气的短句去凑节奏——就是随口一句,自然带过就行。');
     if (AUTO_IMAGE_READY) {
       systemParts.push('如果这一刻配一张照片更自然(比如分享你在做什么),可以在最后加一行 [画:画面描述],系统会生成后一起发给她;不是必须。');
     }
@@ -1604,6 +1605,13 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     // Real conversation varies in length and register with the moment.
     systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
+    // Her latest complaint: even with the guardrails above, long chats still
+    // drift into a fixed opener ("我发现......") and a fixed comma-chopped
+    // rhythm (short clause, pause, short clause, pause...) that reads as
+    // scripted rather than spoken. Name the actual tics instead of just
+    // saying "vary it," since vague instructions weren't enough to break
+    // the habit once it starts repeating within one conversation.
+    systemParts.push('留意几个已经开始变成口头禅的习惯,不要再用:句子开头老是"我发现......""说实话......""其实......""老实说......"这种固定开场;还有把一句话切成好几个逗号短句、每个短句语气差不多、听起来像在按同一个节拍念稿子。正常说话该长句就长句,该一个字带过就一个字带过,逗号什么时候断句是随内容自然发生的,不是套路。开口前想一下:这句话如果是脱口而出的,会长这样吗?');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
     if (voiceMode) {
       systemParts.push('她刚才这条是语音说的(下面是转写的文字)。照常回复就行,想听的话她会点播放。');
@@ -2086,6 +2094,7 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
     if (milestonesBlock) systemParts.push(`以下是你们俩共同确认过、记进纪念册的重要事件——这些是刻在你心里的,任何时候都记得:\n${milestonesBlock}`);
     if (memoryBlock) systemParts.push(`以下是这段关系/对话更早之前的记忆摘要,供参考:\n${memoryBlock}`);
     systemParts.push('现在是语音通话,她刚才那句话是说出来的,你的回复会被念出来给她听。所以:像打电话一样说话——短句、口语、直接,一次别说太长(两三句为宜);不要用括号动作描写、不要用列表或任何书面排版;语气跟着她这句话走。');
+    systemParts.push('别用"我发现......""其实......""说实话......"这种固定开场白,也别把话切成一串差不多长、差不多语气的短句——就是随口说话该怎么说就怎么说。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。`);
 
     const claudeMessage = await createMessageWithRetry({
