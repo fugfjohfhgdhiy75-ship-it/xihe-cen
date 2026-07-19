@@ -742,11 +742,14 @@ function addPendingStickerTile(tag) {
   return item;
 }
 
-stickerGenerateBtnEl.addEventListener('click', async () => {
+const stickerRegenerateBtnEl = document.getElementById('stickerRegenerateBtn');
+
+async function runStickerGeneration(force) {
   stickerGenerateBtnEl.disabled = true;
+  stickerRegenerateBtnEl.disabled = true;
   stickerStatusEl.textContent = '开始生成...';
   try {
-    const res = await fetch('/api/stickers/generate-set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    const res = await fetch('/api/stickers/generate-set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -778,6 +781,11 @@ stickerGenerateBtnEl.addEventListener('click', async () => {
           continue;
         }
         if (payload.status === 'generating') {
+          // Regenerating (force) means a tag can already have a finished
+          // tile sitting in the grid from before — clear it first so it
+          // doesn't end up duplicated alongside the fresh one.
+          const existingTile = stickerGridEl.querySelector(`.sticker-item[data-tag="${CSS.escape(payload.tag)}"]`);
+          if (existingTile) existingTile.remove();
           addPendingStickerTile(payload.tag);
           stickerStatusEl.textContent = `正在生成:${payload.tag} (${doneCount + 1}/${total})`;
         } else if (payload.status === 'done') {
@@ -808,7 +816,14 @@ stickerGenerateBtnEl.addEventListener('click', async () => {
     stickerStatusEl.textContent = '生成失败: ' + err.message;
   } finally {
     stickerGenerateBtnEl.disabled = false;
+    stickerRegenerateBtnEl.disabled = false;
   }
+}
+
+stickerGenerateBtnEl.addEventListener('click', () => runStickerGeneration(false));
+stickerRegenerateBtnEl.addEventListener('click', () => {
+  if (!confirm('会把现有的 10 张表情包全部换掉、重新生成一遍(会再花一次生成的钱),确定吗?')) return;
+  runStickerGeneration(true);
 });
 
 // ---- Chat background workshop ----

@@ -1678,24 +1678,15 @@ const STICKER_SLUGS = {
 };
 
 async function generateStickerImage(tag) {
-  let appearance = null;
-  let referenceUrl = null;
-  try {
-    const { data } = await supabase.from('settings').select('photo_appearance, photo_reference_url').eq('id', 1).maybeSingle();
-    appearance = (data && data.photo_appearance) || null;
-    referenceUrl = (data && data.photo_reference_url) || null;
-  } catch (err) {
-    console.error('sticker: reading appearance settings failed (using generic style):', err.message);
-  }
-
   const scene = STICKER_SCENE_HINTS[tag] || tag;
-  const appearanceText = appearance ? appearance.trim().replace(/[。,;\s]+$/, '') + '。' : '';
-  // Deliberately a different visual register from the realistic-photo
-  // style generateMinimaxImage uses — stickers read as illustrated
-  // reactions, not photos, and a simplified cartoon style is also just
-  // easier for the model to keep visually consistent across 10 separate
-  // generation calls than a photoreal face would be.
-  const prompt = `${appearanceText}${scene}。Q版卡通头像风格,简笔厚涂插画,大头或半身特写,纯色或白色背景,线条简洁可爱,适合做聊天表情包,不要任何文字。`;
+  // Her call after seeing the first batch (a Q版 illustrated version of
+  // his own appearance): too busy/came out looking off — she asked for
+  // something simpler instead, a cartoon cat mascot standing in for him
+  // rather than an illustrated likeness. No photo_appearance/reference
+  // injection here on purpose — a cat mascot doesn't need his human
+  // description or face reference, and keeping those out of the prompt
+  // is exactly what makes this simpler than the first attempt.
+  const prompt = `一只可爱的卡通猫咪吉祥物,${scene}。极简扁平插画风格,线条简洁干净,色块配色,纯色背景,圆润可爱的猫咪形象,适合做聊天表情包,不要任何文字。`;
 
   const body = {
     model: MINIMAX_IMAGE_MODEL,
@@ -1704,9 +1695,6 @@ async function generateStickerImage(tag) {
     response_format: 'base64',
     n: 1,
   };
-  if (referenceUrl) {
-    body.subject_reference = [{ type: 'character', image_file: referenceUrl }];
-  }
 
   const mmRes = await fetch(`${MINIMAX_API_HOST}/v1/image_generation?GroupId=${MINIMAX_GROUP_ID}`, {
     method: 'POST',
