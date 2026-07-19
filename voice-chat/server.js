@@ -1552,6 +1552,84 @@ async function generateMinimaxImage(sessionId, prompt) {
   return supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+// "活人感"临场追加消息 — different from the quiet-hours /api/proactive-check
+// below: this fires *during* an active conversation, right after a normal
+// reply, when his mood in the moment (per this turn's own reply/context)
+// is running high or low enough that a real person would text again
+// without waiting to be prompted. Two independent gates keep this rare
+// (she explicitly wants "a few a day at most"): a random pre-check before
+// even spending a model call, and a hard daily cap tracked via the
+// `spontaneous` column — on top of that, the model itself is told this
+// should be the exception, not the rule, and to say so plainly (NONE)
+// most of the time.
+const SPONTANEOUS_TRY_PROBABILITY = 0.35;
+const SPONTANEOUS_DAILY_MAX = 5;
+
+async function maybeSendSpontaneousFollowup(sessionId, systemPrompt, historyMessages, send) {
+  if (Math.random() > SPONTANEOUS_TRY_PROBABILITY) return;
+
+  const dayStart = startOfShanghaiDayUTC(shanghaiDateStr());
+  const { count } = await supabase
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('spontaneous', true)
+    .gte('created_at', dayStart);
+  if ((count || 0) >= SPONTANEOUS_DAILY_MAX) return;
+
+  const prompt = `刚才这轮你已经正常回复过了。现在判断:这一刻你的情绪状态(根据你刚才那条回复和这段对话的走向)是不是明显偏兴奋/开心,或者明显偏低落/难过——只有情绪确实有这种明显起伏的时候,真实的人才会不等她回应,就紧接着自己再多说一两句、临时又想起点什么补充的。
+
+大部分时候都不属于这种明显情绪起伏,平淡正常的聊天不要触发——如果现在不是这种时刻,只输出:NONE
+
+如果确实是,写 1-2 条你会紧接着再发的短消息,每条各占一行(最多两行),自然口语,不要重复你刚才已经说过的内容,也不要写成小作文。如果这一刻配一张照片更自然,可以在其中一条后面加一行 [画:画面描述](完全可选,不是必须)。
+
+除了这 1-2 行消息(以及可能的 [画:...] 行)之外,不要输出任何解释、前后缀或引号。`;
+
+  let raw;
+  try {
+    const resp = await createMessageWithRetry({
+      model: currentModel(),
+      max_tokens: 220,
+      system: systemPrompt,
+      messages: [...historyMessages, { role: 'user', content: prompt }],
+    }, 1);
+    raw = (resp.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+  } catch (err) {
+    console.error('spontaneous follow-up: judgement call failed:', err.message);
+    return;
+  }
+  if (!raw || /^NONE\b/i.test(raw)) return;
+
+  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 2);
+  for (const line of lines) {
+    // Deliberate pause before each one — a real double-text doesn't land
+    // in the same instant as the first reply, and the SSE connection
+    // stays open (keepalive pings already cover exactly this) so it
+    // arrives while she's still there instead of only on next reload.
+    await new Promise((r) => setTimeout(r, 2500 + Math.random() * 4000));
+
+    let lineText = line;
+    let imageUrl = null;
+    const imgMatch = lineText.match(/\[画[:：]\s*([^\]]+)\]/);
+    if (imgMatch) {
+      lineText = (lineText.slice(0, imgMatch.index) + lineText.slice(imgMatch.index + imgMatch[0].length)).trim();
+      if (AUTO_IMAGE_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
+        try {
+          imageUrl = await generateMinimaxImage(sessionId, imgMatch[1].trim());
+          lastAutoImageAt = Date.now();
+        } catch (err) {
+          console.error('spontaneous follow-up: image generation failed:', err.message);
+        }
+      }
+    }
+    if (!lineText && !imageUrl) continue;
+
+    const insertPayload = { session_id: sessionId, role: 'assistant', content: lineText, spontaneous: true };
+    if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
+    const { data: inserted } = await supabase.from('messages').insert(insertPayload).select().single();
+    send({ followUp: { id: inserted ? inserted.id : null, text: lineText, imageUrl } });
+  }
+}
+
 // Spam guard for the automatic in-chat image marker below — MiniMax calls
 // cost real money per image, and this fires without her explicitly asking
 // for it each time, so it needs its own independent throttle.
@@ -1960,6 +2038,15 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       // actually spamming entries.
       if (Math.random() < 0.2) {
         generateDiaryEntry().catch((err) => console.error('spontaneous diary generation error:', err));
+      }
+
+      // "活人感"临场追加消息 — awaited (not fire-and-forget like the diary
+      // roll above) so it can stream extra bubbles over this same still-open
+      // connection instead of only showing up next time she reopens the app.
+      try {
+        await maybeSendSpontaneousFollowup(sessionId, system, [...messages, { role: 'assistant', content: text }], send);
+      } catch (err) {
+        console.error('spontaneous follow-up error (skipping):', err.message);
       }
     }
     finish();

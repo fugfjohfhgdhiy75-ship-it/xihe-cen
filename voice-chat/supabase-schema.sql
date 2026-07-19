@@ -98,6 +98,12 @@ alter table messages add column if not exists proactive boolean not null default
 -- "他会主动找你"开关(更多页)
 alter table settings add column if not exists proactive_enabled boolean not null default true;
 
+-- "活人感"临场追加消息:跟 proactive(安静了很久之后主动找你)是两码事——
+-- 这个是聊天聊得正热的时候,回完一句正常回复后,偶尔紧接着再多发 1-2 条
+-- "临时想到的"话(情绪明显起伏的时候才会触发),不占 proactive 的每日额度,
+-- 单独算自己的每日上限(见 server.js 的 SPONTANEOUS_DAILY_MAX)。
+alter table messages add column if not exists spontaneous boolean not null default false;
+
 -- 纪念册:两人共同确认过的重要事件。"他"在聊天里提议(pending),她在
 -- 聊天气泡下点"记下来"确认(confirmed)后永久生效——confirmed 的条目
 -- 会拼进每一个窗口每一轮对话的提示词里,永不压缩、跨窗口共用。

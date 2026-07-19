@@ -1742,6 +1742,7 @@ async function regenerateReplyAfterEdit(messageId) {
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
+        handleFollowUpPayload(payload);
       }
     }
 
@@ -1903,6 +1904,20 @@ function attachAudioLazy(bubble, text) {
   };
 }
 
+// "活人感" spontaneous follow-up — occasionally, after a normal reply, the
+// server decides his mood right now (visibly excited or visibly down) is
+// the kind that makes a real person text again a moment later without
+// waiting to be prompted. Arrives as its own SSE event, separate from the
+// main reply's streamed text, some seconds after the main reply (the
+// server adds a deliberate pause) — rendered as a brand new bubble, not
+// appended into the one already on screen.
+function handleFollowUpPayload(payload) {
+  if (!payload.followUp) return;
+  const f = payload.followUp;
+  const bubble = appendBubble('assistant', f.text || '', f.imageUrl ? [f.imageUrl] : [], f.id, new Date().toISOString());
+  if (f.text) attachAudioLazy(bubble, f.text);
+}
+
 async function sendMessage(rawText) {
   const text = (rawText || '').trim();
   const imageFiles = selectedImageFiles;
@@ -1960,6 +1975,7 @@ async function sendMessage(rawText) {
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
+        handleFollowUpPayload(payload);
       }
     }
 
@@ -2165,6 +2181,7 @@ async function sendVoiceMessage(blob, mime) {
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
+        handleFollowUpPayload(payload);
       }
     }
 
