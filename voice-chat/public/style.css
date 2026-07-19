@@ -108,7 +108,19 @@ body::before {
   height: auto;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.85;
+  opacity: 0.8;
+  /* The PNG carries its own baked-in patch of sky — feather it out so it
+     melts into the default backdrop instead of reading as a pasted
+     sticker with hard edges. */
+  -webkit-mask-image: radial-gradient(140% 140% at 100% 0%, #000 40%, transparent 72%);
+  mask-image: radial-gradient(140% 140% at 100% 0%, #000 40%, transparent 72%);
+}
+
+/* Any custom artwork has its own sky — the baked-in patch can never
+   match it, so the chime steps aside entirely there. (Want a chime? The
+   generated gardens usually include one.) */
+body.chat-bg-on .chime-deco {
+  display: none;
 }
 
 .app {
@@ -214,17 +226,22 @@ body::before {
   flex: none;
 }
 
+/* iOS-style floating tab capsule: the safe-area strip used to be padding
+   INSIDE the bar, which pushed the icons to the top and left a fat dead
+   slab under them. It's outside margin now, so the capsule floats above
+   the home indicator with its content vertically centered. */
 .tabbar {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-around;
   gap: 4px;
-  padding: 8px 6px calc(env(safe-area-inset-bottom) + 8px);
+  padding: 6px 8px;
   margin-top: 8px;
+  margin-bottom: calc(env(safe-area-inset-bottom) + 6px);
   background: var(--glass-strong);
   border: 1px solid var(--glass-border);
-  border-radius: 22px;
+  border-radius: 26px;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   box-shadow: 0 8px 26px rgba(94,142,207,0.18);
@@ -239,21 +256,23 @@ body::before {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   background: none;
   border: none;
   color: var(--text-dim);
-  padding: 9px 4px 7px;
-  border-radius: 14px;
+  padding: 8px 4px 7px;
+  border-radius: 18px;
   cursor: pointer;
   font-size: 12.5px;
   font-weight: 500;
   font-family: inherit;
 }
 
+/* iOS-style selection: the active item sits on its own soft pill. */
 .tab-btn.active {
   color: var(--accent);
   font-weight: 600;
+  background: var(--accent-soft);
 }
 
 .tab-btn svg {
