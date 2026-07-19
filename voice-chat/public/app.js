@@ -1903,14 +1903,67 @@ function clearImageSelection() {
   renderImagePreview();
 }
 
+// iOS full-res photos run several MB each — picking even 4-5 of them held
+// as-is (for preview + later packed into one upload) has been enough to
+// blow past a home-screen PWA's much tighter memory ceiling than a normal
+// Safari tab, crashing the whole page (lost chat history and all) before
+// the request even reaches the server. Downscale/re-encode every picked
+// photo through a canvas immediately at selection time — before it's ever
+// held for preview — so peak memory stays bounded to roughly one decoded
+// image at a time regardless of how many she picks.
+const UPLOAD_MAX_DIM = 1600;
+const UPLOAD_JPEG_QUALITY = 0.82;
+// Already-small images (screenshots, stickers) skip re-encoding — no
+// point paying a quality hit when there's no memory problem to solve.
+const UPLOAD_SKIP_COMPRESS_BYTES = 600 * 1024;
+
+function compressImageForUpload(file) {
+  return new Promise((resolve) => {
+    if (file.size <= UPLOAD_SKIP_COMPRESS_BYTES) { resolve(file); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, UPLOAD_MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.max(1, Math.round(img.naturalWidth * scale));
+        const h = Math.max(1, Math.round(img.naturalHeight * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(url);
+          // Only worth it if it's actually smaller — a tiny/simple source
+          // image can occasionally re-encode larger as JPEG.
+          resolve(blob && blob.size < file.size ? blob : file);
+        }, 'image/jpeg', UPLOAD_JPEG_QUALITY);
+      } catch {
+        URL.revokeObjectURL(url);
+        resolve(file);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 imageBtn.addEventListener('click', () => imageInput.click());
 
-imageInput.addEventListener('change', () => {
-  const files = Array.from(imageInput.files || []);
-  if (!files.length) return;
-  selectedImageFiles = selectedImageFiles.concat(files).slice(0, MAX_IMAGES);
+imageInput.addEventListener('change', async () => {
+  const files = Array.from(imageInput.files || []).slice(0, MAX_IMAGES - selectedImageFiles.length);
   imageInput.value = '';
-  renderImagePreview();
+  if (!files.length) return;
+  // One at a time, not Promise.all — decoding several full-res photos into
+  // canvases concurrently is exactly the memory spike this is meant to
+  // avoid.
+  const showedStatus = files.length > 1;
+  if (showedStatus) statusText.textContent = '图片处理中...';
+  for (const file of files) {
+    const compressed = await compressImageForUpload(file);
+    selectedImageFiles.push(compressed);
+    renderImagePreview();
+  }
+  if (showedStatus) statusText.textContent = '';
 });
 
 // ---- Tab navigation ----
