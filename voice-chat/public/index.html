@@ -241,6 +241,62 @@
           </div>
 
           <div class="card more-card">
+            <label>聊天字体与颜色</label>
+
+            <div class="style-color-item">
+              <div class="style-color-head">
+                <span>对方的文字颜色</span>
+                <button type="button" id="swatchAssistant" class="color-swatch-btn" title="点开选色"></button>
+              </div>
+              <div id="pickerAssistant" class="color-picker hidden">
+                <canvas id="svAssistant" class="sv-canvas" width="260" height="140"></canvas>
+                <input type="range" id="hueAssistant" class="hue-slider" min="0" max="360" value="0">
+                <div class="color-picker-foot">
+                  <input type="text" id="hexAssistant" class="hex-input" maxlength="7" placeholder="#000000" autocomplete="off">
+                  <button type="button" id="resetAssistant" class="mini-btn milestone-no">恢复默认</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="style-color-item">
+              <div class="style-color-head">
+                <span>我的文字颜色</span>
+                <button type="button" id="swatchUser" class="color-swatch-btn" title="点开选色"></button>
+              </div>
+              <div id="pickerUser" class="color-picker hidden">
+                <canvas id="svUser" class="sv-canvas" width="260" height="140"></canvas>
+                <input type="range" id="hueUser" class="hue-slider" min="0" max="360" value="0">
+                <div class="color-picker-foot">
+                  <input type="text" id="hexUser" class="hex-input" maxlength="7" placeholder="#000000" autocomplete="off">
+                  <button type="button" id="resetUser" class="mini-btn milestone-no">恢复默认</button>
+                </div>
+              </div>
+            </div>
+
+            <label>中文字体</label>
+            <select id="fontZhSelect">
+              <option value="">默认(苹方 / 雅黑)</option>
+              <option value="'PingFang SC', sans-serif">苹方</option>
+              <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+              <option value="'Heiti SC', SimHei, sans-serif">黑体</option>
+              <option value="'Songti SC', SimSun, serif">宋体(衬线)</option>
+              <option value="'Kaiti SC', STKaiti, KaiTi, serif">楷体</option>
+            </select>
+
+            <label>英文字体</label>
+            <select id="fontEnSelect">
+              <option value="">默认(系统无衬线)</option>
+              <option value="'Helvetica Neue', Helvetica, Arial, sans-serif">Helvetica</option>
+              <option value="Georgia, 'Times New Roman', serif">Georgia(衬线)</option>
+              <option value="'Times New Roman', Times, serif">Times New Roman</option>
+              <option value="'Courier New', Courier, monospace">Courier New(等宽)</option>
+              <option value="Verdana, Geneva, sans-serif">Verdana</option>
+            </select>
+
+            <div id="chatStyleStatus" class="doc-status"></div>
+          </div>
+
+          <div class="card more-card">
             <label>聊天页背景工坊</label>
             <div class="bg-slot-row">
               <button id="bgSlotDay" class="mini-btn bg-slot active">☀️ 白天版</button>

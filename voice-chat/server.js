@@ -788,6 +788,27 @@ app.put('/api/settings', async (req, res) => {
   if (req.body.photo_appearance !== undefined) update.photo_appearance = (req.body.photo_appearance || '').trim() || null;
   if (req.body.chat_bg_url !== undefined) update.chat_bg_url = (req.body.chat_bg_url || '').trim() || null;
   if (req.body.chat_bg_night_url !== undefined) update.chat_bg_night_url = (req.body.chat_bg_night_url || '').trim() || null;
+  // 聊天气泡文字颜色(HEX)与字体(CSS font-family 片段)——更多页"聊天字体与
+  // 颜色"卡片。颜色必须是合法 #rrggbb,字体串限制在安全字符集内,格式不对就
+  // 存 null(等于"用默认"),不让脏值混进 CSS 自定义属性里。
+  const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+  const FONT_STACK_RE = /^[a-zA-Z0-9 ,'"-]{0,150}$/;
+  if (req.body.user_text_color !== undefined) {
+    const v = (req.body.user_text_color || '').trim();
+    update.user_text_color = HEX_COLOR_RE.test(v) ? v : null;
+  }
+  if (req.body.assistant_text_color !== undefined) {
+    const v = (req.body.assistant_text_color || '').trim();
+    update.assistant_text_color = HEX_COLOR_RE.test(v) ? v : null;
+  }
+  if (req.body.font_zh !== undefined) {
+    const v = (req.body.font_zh || '').trim();
+    update.font_zh = FONT_STACK_RE.test(v) ? v : null;
+  }
+  if (req.body.font_en !== undefined) {
+    const v = (req.body.font_en || '').trim();
+    update.font_en = FONT_STACK_RE.test(v) ? v : null;
+  }
   let apiFieldsChanged = false;
   for (const key of ['api_base_url', 'api_key', 'model']) {
     if (req.body[key] !== undefined) {

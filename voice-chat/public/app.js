@@ -114,6 +114,11 @@ let supabaseReady = false;
 let selectedImageFiles = [];
 let sessions = [];
 let currentSessionId = null;
+// Declared this early (not down by loadSettings, where it's populated) so
+// applyTextColors() can read it safely — that function is reachable from
+// applyNightMode(), which runs synchronously at script-eval time, well
+// before loadSettings() ever gets a chance to fill this in.
+let currentSettings = {};
 
 const ttsPlayer = document.getElementById('ttsPlayer');
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -196,6 +201,7 @@ function updateChatBgState() {
   document.body.style.setProperty('--chat-bg-active', url ? `url("${url}")` : 'none');
   document.body.classList.toggle('chat-bg-dark', on && lum !== null && lum < 0.5);
   document.body.classList.toggle('chat-bg-light', on && lum !== null && lum >= 0.5);
+  if (typeof applyTextColors === 'function') applyTextColors();
 }
 
 
@@ -362,8 +368,8 @@ sessionsBtn.addEventListener('click', () => {
 });
 
 // ---- Settings (server-persisted) ----
-
-let currentSettings = {};
+// (currentSettings itself is declared near the top of the file — see the
+// comment by its declaration for why.)
 
 async function loadSettings() {
   try {
@@ -383,7 +389,12 @@ async function loadSettings() {
     modelInputEl.value = data.model || '';
     photoAppearanceEl.value = data.photo_appearance || '';
     renderPhotoRef(data.photo_reference_url || null);
+    assistantColorPicker.setHex(data.assistant_text_color || '#3a3a3a');
+    userColorPicker.setHex(data.user_text_color || '#1f4a73');
+    fontZhSelectEl.value = data.font_zh || '';
+    fontEnSelectEl.value = data.font_en || '';
     applyChatBg(data.chat_bg_url || null, data.chat_bg_night_url || null);
+    applyTextColors();
     renderTogetherDays();
   } catch (err) {
     statusText.textContent = '加载设置失败: ' + err.message;
@@ -607,6 +618,228 @@ bgResetBtn.addEventListener('click', async () => {
     bgStatusEl.textContent = '恢复失败: ' + err.message;
   }
 });
+
+// ---- Chat bubble text colors & fonts ----
+// 更多页"聊天字体与颜色"卡片:对方/我的文字颜色用一个 HSV 拾色器(色相条 +
+// 饱和度/明度方块,而不是浏览器原生那个只有色相环的 <input type=color>),
+// 中文/英文字体各一个下拉。四个值都存在服务器 settings 表里,跨设备生效。
+
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+function hsvToRgb(h, s, v) {
+  h = ((h % 360) + 360) % 360;
+  const c = v * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = v - c;
+  let r, g, b;
+  if (h < 60) { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  return '#' + [r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToRgb(hex) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return null;
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+
+function rgbToHsv({ r, g, b }) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  if (h < 0) h += 360;
+  return { h, s: max === 0 ? 0 : d / max, v: max };
+}
+
+// One instance of this drives each of the two pickers (对方/我的). The SV
+// square is a canvas because a smooth 2D saturation×value gradient (with
+// hundreds of shades between, say, pure black and pure white at s=0) isn't
+// something CSS gradients alone render crisply at this size; the hue strip
+// stays a plain <input type=range> since a 1D gradient is trivial in CSS
+// and that gets native keyboard/touch handling for free.
+function makeColorPicker({ swatchEl, panelEl, canvasEl, hueEl, hexEl, resetBtn, defaultHex, onCommit }) {
+  const ctx = canvasEl.getContext('2d');
+  let state = rgbToHsv(hexToRgb(defaultHex) || { r: 128, g: 128, b: 128 });
+
+  function currentHex() {
+    return rgbToHex(hsvToRgb(state.h, state.s, state.v));
+  }
+
+  function drawCanvas() {
+    const w = canvasEl.width, h = canvasEl.height;
+    const base = hsvToRgb(state.h, 1, 1);
+    ctx.fillStyle = `rgb(${base.r},${base.g},${base.b})`;
+    ctx.fillRect(0, 0, w, h);
+    const satGrad = ctx.createLinearGradient(0, 0, w, 0);
+    satGrad.addColorStop(0, 'rgba(255,255,255,1)');
+    satGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = satGrad;
+    ctx.fillRect(0, 0, w, h);
+    const valGrad = ctx.createLinearGradient(0, 0, 0, h);
+    valGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    valGrad.addColorStop(1, 'rgba(0,0,0,1)');
+    ctx.fillStyle = valGrad;
+    ctx.fillRect(0, 0, w, h);
+    const x = state.s * w, y = (1 - state.v) * h;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.strokeStyle = state.v > 0.6 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  function render() {
+    const hex = currentHex();
+    swatchEl.style.setProperty('--swatch-color', hex);
+    hueEl.value = String(Math.round(state.h));
+    hexEl.value = hex;
+    drawCanvas();
+    return hex;
+  }
+
+  function setHex(hex) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return;
+    state = rgbToHsv(rgb);
+    render();
+  }
+
+  function pointerToSV(evt) {
+    const rect = canvasEl.getBoundingClientRect();
+    state.s = Math.max(0, Math.min(1, (evt.clientX - rect.left) / rect.width));
+    state.v = 1 - Math.max(0, Math.min(1, (evt.clientY - rect.top) / rect.height));
+    render();
+  }
+
+  let dragging = false;
+  canvasEl.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    canvasEl.setPointerCapture(e.pointerId);
+    pointerToSV(e);
+  });
+  canvasEl.addEventListener('pointermove', (e) => { if (dragging) pointerToSV(e); });
+  canvasEl.addEventListener('pointerup', () => {
+    if (!dragging) return;
+    dragging = false;
+    onCommit(currentHex());
+  });
+
+  hueEl.addEventListener('input', () => {
+    state.h = Number(hueEl.value);
+    render();
+  });
+  hueEl.addEventListener('change', () => onCommit(currentHex()));
+
+  hexEl.addEventListener('change', () => {
+    let v = hexEl.value.trim();
+    if (v && v[0] !== '#') v = '#' + v;
+    if (!HEX_RE.test(v)) { hexEl.value = currentHex(); return; }
+    setHex(v);
+    onCommit(currentHex());
+  });
+
+  swatchEl.addEventListener('click', () => panelEl.classList.toggle('hidden'));
+
+  resetBtn.addEventListener('click', () => {
+    setHex(defaultHex);
+    onCommit(null);
+  });
+
+  render();
+  return { setHex };
+}
+
+const chatStyleStatusEl = document.getElementById('chatStyleStatus');
+
+const assistantColorPicker = makeColorPicker({
+  swatchEl: document.getElementById('swatchAssistant'),
+  panelEl: document.getElementById('pickerAssistant'),
+  canvasEl: document.getElementById('svAssistant'),
+  hueEl: document.getElementById('hueAssistant'),
+  hexEl: document.getElementById('hexAssistant'),
+  resetBtn: document.getElementById('resetAssistant'),
+  defaultHex: '#3a3a3a',
+  onCommit: async (hex) => {
+    await patchSettings({ assistant_text_color: hex || null });
+    applyTextColors();
+    chatStyleStatusEl.textContent = hex ? '对方的文字颜色已保存' : '已恢复对方的默认文字颜色';
+  },
+});
+
+const userColorPicker = makeColorPicker({
+  swatchEl: document.getElementById('swatchUser'),
+  panelEl: document.getElementById('pickerUser'),
+  canvasEl: document.getElementById('svUser'),
+  hueEl: document.getElementById('hueUser'),
+  hexEl: document.getElementById('hexUser'),
+  resetBtn: document.getElementById('resetUser'),
+  defaultHex: '#1f4a73',
+  onCommit: async (hex) => {
+    await patchSettings({ user_text_color: hex || null });
+    applyTextColors();
+    chatStyleStatusEl.textContent = hex ? '我的文字颜色已保存' : '已恢复我的默认文字颜色';
+  },
+});
+
+const fontZhSelectEl = document.getElementById('fontZhSelect');
+const fontEnSelectEl = document.getElementById('fontEnSelect');
+
+fontZhSelectEl.addEventListener('change', async () => {
+  await patchSettings({ font_zh: fontZhSelectEl.value });
+  applyTextColors();
+  chatStyleStatusEl.textContent = '中文字体已保存';
+});
+fontEnSelectEl.addEventListener('change', async () => {
+  await patchSettings({ font_en: fontEnSelectEl.value });
+  applyTextColors();
+  chatStyleStatusEl.textContent = '英文字体已保存';
+});
+
+// Single source of truth for the four customizable values, called after
+// settings load and whenever the custom chat background's measured
+// brightness changes (see updateChatBgState). A saved custom color always
+// wins; failing that, a dark/light custom background still gets to flip
+// the user-bubble text for contrast the way it always has; failing that,
+// clearing the property lets the plain day/night theme default apply.
+function applyTextColors() {
+  const root = document.documentElement;
+  const userColor = currentSettings.user_text_color;
+  if (userColor) {
+    root.style.setProperty('--user-text-color', userColor);
+  } else if (document.body.classList.contains('chat-bg-dark')) {
+    root.style.setProperty('--user-text-color', '#bcdcff');
+  } else if (document.body.classList.contains('chat-bg-light')) {
+    root.style.setProperty('--user-text-color', '#1f4a73');
+  } else {
+    root.style.removeProperty('--user-text-color');
+  }
+
+  const assistantColor = currentSettings.assistant_text_color;
+  if (assistantColor) root.style.setProperty('--assistant-text-color', assistantColor);
+  else root.style.removeProperty('--assistant-text-color');
+
+  const fontStack = [currentSettings.font_en, currentSettings.font_zh].filter(Boolean).join(', ');
+  if (fontStack) root.style.setProperty('--chat-font-family', fontStack);
+  else root.style.removeProperty('--chat-font-family');
+}
 
 // ---- Model / API overrides ----
 

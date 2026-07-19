@@ -53,6 +53,7 @@
   --glass-strong: rgba(20,30,50,0.7);
   --glass-border: rgba(255,255,255,0.15);
   --border: rgba(255,255,255,0.15);
+  --user-text-color: #bcdcff;
 }
 
 html, body {
@@ -557,6 +558,104 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
+/* 聊天字体与颜色 — HSV color picker (对方/我的文字颜色) */
+.style-color-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.style-color-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.color-swatch-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+  background: var(--swatch-color, #888888);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 5px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(0,0,0,0.06);
+}
+
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.35);
+  border: 1px solid var(--glass-border);
+}
+
+.sv-canvas {
+  display: block;
+  width: 100%;
+  height: 140px;
+  border-radius: 10px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.hue-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  outline: none;
+  background: linear-gradient(to right,
+    hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%),
+    hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), hsl(360,100%,50%));
+}
+
+.hue-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(0,0,0,0.3);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  cursor: pointer;
+}
+
+.hue-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid rgba(0,0,0,0.3);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  cursor: pointer;
+}
+
+.color-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hex-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 7px 9px;
+  font-size: 13px;
+  font-family: 'Courier New', Courier, monospace;
+  text-transform: uppercase;
+}
+
 /* 纪念册 confirm card in chat + list on Home */
 .milestone-confirm {
   align-self: center;
@@ -652,6 +751,12 @@ h1 {
   justify-content: flex-end;
   gap: 7px;
   padding: 10px 2px 6px;
+  /* Custom fonts (更多页"聊天字体与颜色") are set as this variable by
+     applyTextColors() in app.js — combining the chosen English and Chinese
+     font-family picks so the browser picks glyphs from whichever one
+     actually covers a given character. Unset by default, so it falls back
+     to the page's normal font stack. */
+  font-family: var(--chat-font-family, inherit);
 }
 
 .bubble {
@@ -734,17 +839,17 @@ h1 {
 /* Distinct but still both legible on the glass — his replies read as a
    near-black neutral, hers a deeper blue that echoes the user-bubble
    tint, so at a glance who's talking is obvious without needing to check
-   which side of the screen it's on. */
+   which side of the screen it's on. Both are overridable per the 更多页
+   "聊天字体与颜色" picker — applyTextColors() in app.js sets
+   --assistant-text-color / --user-text-color on the root when a custom
+   color is saved (or when a custom chat background needs the contrast
+   flipped), and clears them again to fall back to these theme defaults. */
 .bubble.assistant .bubble-text {
-  color: var(--text-body);
+  color: var(--assistant-text-color, var(--text-body));
 }
 
 .bubble.user .bubble-text {
-  color: #1f4a73;
-}
-
-:root[data-theme="night"] .bubble.user .bubble-text {
-  color: #bcdcff;
+  color: var(--user-text-color, #1f4a73);
 }
 
 .bubble .bubble-text strong {
@@ -1476,10 +1581,6 @@ body.chat-bg-on.chat-bg-dark .bubble.user {
   background: rgba(56, 84, 120, 0.45);
 }
 
-body.chat-bg-on.chat-bg-dark .bubble.user .bubble-text {
-  color: #bcdcff;
-}
-
 body.chat-bg-on.chat-bg-dark .voice-bar {
   background: rgba(255, 255, 255, 0.18);
   color: rgba(255, 255, 255, 0.9);
@@ -1494,9 +1595,10 @@ body.chat-bg-on.chat-bg-light .bubble.user {
   background: rgba(178, 205, 235, 0.32);
 }
 
-body.chat-bg-on.chat-bg-light .bubble.user .bubble-text {
-  color: #1f4a73;
-}
+/* No hardcoded .bubble.user .bubble-text color override here on purpose —
+   applyTextColors() in app.js watches these two classes (bg brightness)
+   and sets --user-text-color itself, but only when the user hasn't picked
+   a custom color of their own, which a CSS-only override can't express. */
 
 .bg-preview-wrap {
   display: flex;

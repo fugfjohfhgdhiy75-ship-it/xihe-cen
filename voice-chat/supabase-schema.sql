@@ -66,6 +66,15 @@ alter table settings add column if not exists photo_reference_url text;
 alter table settings add column if not exists chat_bg_url text;
 alter table settings add column if not exists chat_bg_night_url text;
 
+-- 聊天气泡文字自定义(更多页"聊天字体与颜色"):user_text_color / assistant_text_color
+-- 是十六进制颜色(如 #1f4a73),留空则用主题默认色;font_zh / font_en 是 CSS
+-- font-family 字符串,分别控制中文和英文字符用什么字体,两者拼在一起当聊天
+-- 区域的 font-family(浏览器按字符自动挑用哪个)。
+alter table settings add column if not exists user_text_color text;
+alter table settings add column if not exists assistant_text_color text;
+alter table settings add column if not exists font_zh text;
+alter table settings add column if not exists font_en text;
+
 -- 语音条(微信式):audio_url 是录音/合成语音文件,is_voice 标记这条消息
 -- 以语音条形式展示;proactive 标记"他主动发起"的消息(用于控制频率)
 alter table messages add column if not exists audio_url text;
