@@ -346,6 +346,79 @@ function applyNightMode() {
 applyNightMode();
 setInterval(applyNightMode, 10 * 60 * 1000);
 
+// ---- App 锁 (6-digit PIN, re-checked every time the app opens) ----
+// Deliberately separate from the site-wide "暗号" password (SITE_PASSWORD
+// on the server, remembered for a year via cookie) — that one keeps
+// strangers off the URL entirely; this one is about someone picking up
+// her *already-unlocked* phone and tapping the already-installed icon,
+// so it has to ask again every time, not just once. The overlay is shown
+// (or not) independently of init() below — nothing about loading the
+// rest of the app needs to wait on it, since the overlay itself already
+// physically blocks all clicks/visibility until the right PIN lands.
+const appLockScreenEl = document.getElementById('appLockScreen');
+const appLockInputEl = document.getElementById('appLockInput');
+const appLockErrorEl = document.getElementById('appLockError');
+let appLockEnabled = false;
+let appLockWasHidden = false;
+
+function showAppLock() {
+  appLockScreenEl.classList.remove('hidden');
+  appLockErrorEl.classList.add('hidden');
+  appLockInputEl.value = '';
+  setTimeout(() => appLockInputEl.focus(), 50);
+}
+
+async function submitAppLockPin() {
+  const pin = appLockInputEl.value;
+  if (pin.length !== 6) return;
+  try {
+    const res = await fetch('/api/app-lock/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      appLockScreenEl.classList.add('hidden');
+      return;
+    }
+    throw new Error('wrong');
+  } catch {
+    appLockErrorEl.classList.remove('hidden');
+    appLockInputEl.value = '';
+    appLockInputEl.classList.remove('shake');
+    void appLockInputEl.offsetWidth;
+    appLockInputEl.classList.add('shake');
+  }
+}
+appLockInputEl.addEventListener('input', () => {
+  if (appLockInputEl.value.length === 6) submitAppLockPin();
+});
+
+async function checkAppLock() {
+  try {
+    const res = await fetch('/api/app-lock/status');
+    const data = await res.json();
+    appLockEnabled = Boolean(data.enabled);
+  } catch {
+    appLockEnabled = false;
+  }
+  if (appLockEnabled) showAppLock();
+}
+checkAppLock();
+
+// Covers "reopening" on iOS, where switching back to a backgrounded tab
+// often doesn't reload the page at all — a plain load-time check alone
+// would miss that case entirely.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    appLockWasHidden = true;
+  } else if (appLockWasHidden) {
+    appLockWasHidden = false;
+    if (appLockEnabled) showAppLock();
+  }
+});
+
 async function init() {
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({}));
   ttsProvider = cfg.ttsProvider || 'browser';
@@ -433,6 +506,8 @@ async function loadSettings() {
     userColorPicker.setHex(data.user_text_color || '#1f4a73');
     fontZhSelectEl.value = data.font_zh || '';
     fontEnSelectEl.value = data.font_en || '';
+    appLockEnabled = Boolean(data.app_lock_enabled);
+    appLockSettingStatusEl.textContent = appLockEnabled ? '当前:已开启' : '当前:未开启';
     applyChatBg(data.chat_bg_url || null, data.chat_bg_night_url || null);
     applyTextColors();
     const matchedPalette = COLOR_PALETTES.find((p) =>
@@ -483,6 +558,36 @@ function renderTogetherDays() {
   togetherDaysEl.textContent = `已经在一起 ${days} 天了`;
   if (numberDaysEl) numberDaysEl.textContent = days;
 }
+
+const appLockPinInputEl = document.getElementById('appLockPinInput');
+const appLockPinConfirmEl = document.getElementById('appLockPinConfirm');
+const appLockSaveBtnEl = document.getElementById('appLockSaveBtn');
+const appLockClearBtnEl = document.getElementById('appLockClearBtn');
+const appLockSettingStatusEl = document.getElementById('appLockSettingStatus');
+
+appLockSaveBtnEl.addEventListener('click', async () => {
+  const pin = appLockPinInputEl.value.trim();
+  const confirmPin = appLockPinConfirmEl.value.trim();
+  if (!/^\d{6}$/.test(pin)) { appLockSettingStatusEl.textContent = '得是 6 位数字'; return; }
+  if (pin !== confirmPin) { appLockSettingStatusEl.textContent = '两次输入的不一样'; return; }
+  appLockSaveBtnEl.disabled = true;
+  await patchSettings({ app_lock_pin: pin });
+  appLockSaveBtnEl.disabled = false;
+  appLockPinInputEl.value = '';
+  appLockPinConfirmEl.value = '';
+  appLockEnabled = true;
+  appLockSettingStatusEl.textContent = '已开启,下次重新打开就要输这个密码了';
+});
+
+appLockClearBtnEl.addEventListener('click', async () => {
+  appLockClearBtnEl.disabled = true;
+  await patchSettings({ app_lock_pin: '' });
+  appLockClearBtnEl.disabled = false;
+  appLockPinInputEl.value = '';
+  appLockPinConfirmEl.value = '';
+  appLockEnabled = false;
+  appLockSettingStatusEl.textContent = '已关闭';
+});
 
 toggleAutoDiaryEl.addEventListener('change', () => patchSettings({ auto_diary: toggleAutoDiaryEl.checked }));
 toggleShowMoodEl.addEventListener('change', () => patchSettings({ show_mood: toggleShowMoodEl.checked }));

@@ -874,11 +874,55 @@ app.patch('/api/messages/:id', async (req, res) => {
   res.json(updated);
 });
 
+// The 6-digit App 锁 hash rides along in the same settings row as
+// everything else, but must never reach the client as-is — a hash of a
+// 6-digit numeric PIN is trivially brute-forced offline in well under a
+// second once you have it, which would defeat the whole point of a lock
+// meant to stop a casual "someone picked up my already-unlocked phone"
+// look. Every response through /api/settings strips the real hash and
+// replaces it with just a yes/no flag.
+function stripAppLockHash(row) {
+  if (!row) return row;
+  row.app_lock_enabled = Boolean(row.app_lock_pin_hash);
+  delete row.app_lock_pin_hash;
+  return row;
+}
+
+function hashAppLockPin(pin) {
+  return crypto.createHash('sha256').update('suyan-app-lock:' + pin).digest('hex');
+}
+
 app.get('/api/settings', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase.from('settings').select('*').eq('id', 1).maybeSingle();
   if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json(data || { system_prompt: '' });
+  res.json(stripAppLockHash(data) || { system_prompt: '' });
+});
+
+// Separate from /api/settings so the lock screen can check "is a PIN
+// configured" before the rest of the app's settings/data have loaded —
+// deliberately doesn't require Supabase to be configured (an app lock
+// with nothing behind it to protect yet just no-ops, same as every other
+// optional feature in this file when its backing service isn't set up).
+app.get('/api/app-lock/status', async (req, res) => {
+  if (!SUPABASE_READY) { res.json({ enabled: false }); return; }
+  try {
+    const { data } = await supabase.from('settings').select('app_lock_pin_hash').eq('id', 1).maybeSingle();
+    res.json({ enabled: Boolean(data && data.app_lock_pin_hash) });
+  } catch (err) {
+    console.error('/api/app-lock/status error (defaulting to unlocked):', err.message);
+    res.json({ enabled: false });
+  }
+});
+
+app.post('/api/app-lock/verify', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const pin = String((req.body && req.body.pin) || '');
+  const { data, error } = await supabase.from('settings').select('app_lock_pin_hash').eq('id', 1).maybeSingle();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  const hash = data && data.app_lock_pin_hash;
+  if (!hash) { res.json({ ok: true }); return; }
+  res.json({ ok: hash === hashAppLockPin(pin) });
 });
 
 app.put('/api/settings', async (req, res) => {
@@ -926,6 +970,15 @@ app.put('/api/settings', async (req, res) => {
     const v = (req.body.font_en || '').trim();
     update.font_en = FONT_STACK_RE.test(v) ? v : null;
   }
+  // App 锁 PIN — empty string clears/disables it, exactly 6 digits sets
+  // it (hashed, never stored in plain text); anything else malformed is
+  // silently ignored rather than overwriting an existing working lock
+  // with garbage.
+  if (req.body.app_lock_pin !== undefined) {
+    const v = (req.body.app_lock_pin || '').trim();
+    if (!v) update.app_lock_pin_hash = null;
+    else if (/^\d{6}$/.test(v)) update.app_lock_pin_hash = hashAppLockPin(v);
+  }
   let apiFieldsChanged = false;
   for (const key of ['api_base_url', 'api_key', 'model']) {
     if (req.body[key] !== undefined) {
@@ -942,7 +995,7 @@ app.put('/api/settings', async (req, res) => {
   if (apiFieldsChanged) {
     await loadApiOverrides().catch((err) => console.error('loadApiOverrides after settings save failed:', err));
   }
-  res.json(data);
+  res.json(stripAppLockHash(data));
 });
 
 // 他主动找她 — called by the frontend on app open (and every ~25 min while

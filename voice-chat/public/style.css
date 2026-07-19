@@ -2,6 +2,65 @@
 
 .hidden { display: none !important; }
 
+/* App 锁 — full-screen, opaque (not the usual frosted-glass translucency
+   everywhere else in this app), and above absolutely everything
+   (z-index higher than .call-screen and .bubble-more-menu) since its
+   entire job is making sure nothing behind it is visible or reachable
+   until the right PIN is entered. Shown by checkAppLock() in app.js on
+   every load and again whenever the tab comes back from being hidden. */
+.app-lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background: linear-gradient(160deg, #1c2a3f, #0f1826);
+}
+
+.app-lock-title {
+  color: rgba(255,255,255,0.9);
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+
+.app-lock-input {
+  width: 180px;
+  text-align: center;
+  letter-spacing: 0.6em;
+  font-size: 22px;
+  padding: 10px 0 10px 0.6em;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+
+.app-lock-input::placeholder {
+  color: rgba(255,255,255,0.3);
+  letter-spacing: normal;
+}
+
+.app-lock-error {
+  color: #ff8a8a;
+  font-size: 13px;
+}
+
+@keyframes appLockShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
+.app-lock-input.shake {
+  animation: appLockShake 0.35s ease;
+}
+
 /* Self-hosted (not Google's CDN — fonts.gstatic.com is unreachable behind
    the GFW for most mainland users, which would make all this typography
    silently fall back to the default font). Both files are pre-subsetted to
@@ -2199,6 +2258,21 @@ body.chat-bg-on.chat-bg-light .bubble.user {
 .more-text-input {
   width: 110px;
   text-align: right;
+}
+
+/* Two side-by-side inputs/buttons instead of .more-row's usual
+   space-between (built for a single label+control pair, which shoves two
+   children to opposite edges instead of sitting them next to each
+   other). */
+.app-lock-pin-row {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.app-lock-pin-row .more-text-input {
+  flex: 1;
+  width: auto;
+  text-align: left;
 }
 
 .more-full-input {

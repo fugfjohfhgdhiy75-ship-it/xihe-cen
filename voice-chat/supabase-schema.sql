@@ -104,6 +104,12 @@ alter table settings add column if not exists proactive_enabled boolean not null
 -- 单独算自己的每日上限(见 server.js 的 SPONTANEOUS_DAILY_MAX)。
 alter table messages add column if not exists spontaneous boolean not null default false;
 
+-- App 内的 6 位数字密码锁(更多页设置,跟整站的"暗号"是两码事——那个是防止
+-- 陌生人碰到网址就能打开,一年才要求重新输一次;这个是每次重新打开/切回
+-- 这个 App 都要求重新输,防的是别人拿着你已经解锁的手机随手点开)。只存哈希
+-- 值,不存明文 PIN;这一列是否有值就代表锁有没有开启。
+alter table settings add column if not exists app_lock_pin_hash text;
+
 -- 纪念册:两人共同确认过的重要事件。"他"在聊天里提议(pending),她在
 -- 聊天气泡下点"记下来"确认(confirmed)后永久生效——confirmed 的条目
 -- 会拼进每一个窗口每一轮对话的提示词里,永不压缩、跨窗口共用。

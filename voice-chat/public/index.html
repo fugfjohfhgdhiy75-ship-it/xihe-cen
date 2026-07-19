@@ -16,6 +16,11 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="appLockScreen" class="app-lock-screen hidden">
+    <div class="app-lock-title">输入密码</div>
+    <input id="appLockInput" class="app-lock-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+    <div id="appLockError" class="app-lock-error hidden">密码不对,再试一次</div>
+  </div>
   <img src="img/windchime.png" class="chime-deco" alt="" aria-hidden="true">
   <div class="app">
     <div class="views-wrap">
@@ -203,6 +208,19 @@
           <div class="card passcode-card">
             <span class="passcode-label">暗号</span>
             <span class="passcode-text">睡醒了。你在。</span>
+          </div>
+
+          <div class="card more-card">
+            <label>App 锁(6 位数字,每次重新打开都要输)</label>
+            <div class="more-row app-lock-pin-row">
+              <input type="password" id="appLockPinInput" class="more-text-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="设置 6 位数字密码" autocomplete="off">
+              <input type="password" id="appLockPinConfirm" class="more-text-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="再输一遍确认" autocomplete="off">
+            </div>
+            <div class="more-row app-lock-pin-row">
+              <button id="appLockSaveBtn" class="mini-btn">保存</button>
+              <button id="appLockClearBtn" class="mini-btn milestone-no">关闭锁</button>
+            </div>
+            <div id="appLockSettingStatus" class="doc-status"></div>
           </div>
 
           <div class="card more-card">
