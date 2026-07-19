@@ -106,7 +106,7 @@ const imageBtn = document.getElementById('imageBtn');
 const imageInput = document.getElementById('imageInput');
 const imagePreview = document.getElementById('imagePreview');
 
-const MAX_IMAGES = 6;
+const MAX_IMAGES = 9;
 
 let selectedVoice = null;
 let ttsProvider = 'browser';

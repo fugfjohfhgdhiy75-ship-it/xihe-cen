@@ -1418,7 +1418,7 @@ async function inferPhotoDescription(userMessage, replyText) {
   }
 }
 
-app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 6 }, { name: 'voice', maxCount: 1 }]), async (req, res) => {
+app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'voice', maxCount: 1 }]), async (req, res) => {
   const sessionId = req.body.sessionId;
   let message = req.body.message || '';
   const systemOverride = req.body.system;
@@ -1471,17 +1471,33 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 6 }, { name: 'v
   };
   res.on('close', () => clearInterval(keepalive));
 
+  let skippedImageCount = 0;
   try {
-    if (files.length) {
-      // Mutate in place — both the Supabase upload below and the
-      // Claude image blocks further down read file.buffer/file.mimetype,
-      // so shrinking once here covers both.
-      await Promise.all(files.map(async (file) => {
+    // Sequential, not Promise.all: sharp decoding several full-res iPhone
+    // photos concurrently on Render's free-tier (512MB) instance can spike
+    // memory enough to crash or hang the whole process — turning "she sent
+    // 4 photos" into "the request silently dies and she gets nothing at
+    // all". One at a time keeps peak memory bounded to a single image
+    // regardless of how many she sends.
+    //
+    // Also per-file try/catch: an unreadable file (odd format, corrupt
+    // upload) used to throw and abort the *entire* turn, including photos
+    // that were perfectly fine — now it's dropped and reported, the rest
+    // of the turn proceeds.
+    const goodFiles = [];
+    for (const file of files) {
+      try {
         const shrunk = await shrinkImageIfNeeded(file.buffer, file.mimetype);
         file.buffer = shrunk.buffer;
         file.mimetype = shrunk.mimetype;
-      }));
+        goodFiles.push(file);
+      } catch (err) {
+        console.error('image processing failed, dropping this one file:', err.message);
+        skippedImageCount++;
+      }
     }
+    files.length = 0;
+    files.push(...goodFiles);
 
     let imageUrls = [];
     if (files.length) {
@@ -1689,6 +1705,9 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 6 }, { name: 'v
     // reply bubble itself so the in-fiction voice stays clean.
     if (explicitAsk && !imageUrl && imageFailReason) {
       send({ imageNote: '📷 这次照片没发出来: ' + imageFailReason });
+    }
+    if (skippedImageCount > 0) {
+      send({ imageNote: `⚠️ 有 ${skippedImageCount} 张图片处理失败,已跳过,其余照常发送` });
     }
 
     // Her call: his replies stay text-only even when she sent voice — the
@@ -2124,6 +2143,18 @@ app.post('/api/clone-voice', upload.single('audio'), async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Multer (and anything else) throwing before a route body runs otherwise
+// leaks a raw Express HTML stack trace to the client instead of JSON the
+// frontend can parse and show — e.g. selecting more images/files than a
+// route's configured limit. The UI already caps selection at the current
+// limits, so this is a safety net rather than an expected path.
+app.use((err, req, res, next) => {
+  if (res.headersSent) { next(err); return; }
+  console.error('unhandled request error:', err);
+  const message = err instanceof multer.MulterError ? ('文件太多或太大: ' + err.message) : (err.message || '服务器出错了');
+  res.status(400).json({ error: message });
 });
 
 const PORT = process.env.PORT || 3000;
