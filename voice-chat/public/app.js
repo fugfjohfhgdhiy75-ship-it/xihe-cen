@@ -60,15 +60,24 @@ syncAppHeight();
 // event lagging the keyboard's open/close animation on some iOS versions:
 // re-run the height sync a few times right after focus changes so the
 // layout catches up even if that event was late or skipped.
+// Scoped to the chat composer specifically — this used to fire for ANY
+// input/textarea anywhere in the app (More page's city/API-key fields,
+// the milestone input, and now the color picker's hex field + hue
+// slider), which hid the entire bottom tab bar (.app.kb-open .tabbar)
+// the moment she tapped into any of those, on any page. The
+// keyboard-avoidance layout this exists for only matters for the chat
+// composer; elsewhere it just broke navigation for no reason.
 document.addEventListener('focusin', (e) => {
   if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
-  if (composerDock) composerDock.classList.add('kb-open');
+  if (!composerDock || !composerDock.contains(e.target)) return;
+  composerDock.classList.add('kb-open');
   if (appEl) appEl.classList.add('kb-open');
   [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
 });
 document.addEventListener('focusout', (e) => {
   if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
-  if (composerDock) composerDock.classList.remove('kb-open');
+  if (!composerDock || !composerDock.contains(e.target)) return;
+  composerDock.classList.remove('kb-open');
   if (appEl) appEl.classList.remove('kb-open');
   [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
 });
