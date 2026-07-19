@@ -1395,10 +1395,30 @@ body.chat-bg-on.chat-bg-dark {
   --text-body: rgba(255, 255, 255, 0.88);
   --text-dim: rgba(255, 255, 255, 0.6);
   --text-faint: rgba(255, 255, 255, 0.45);
-  --glass: rgba(20, 30, 50, 0.45);
-  --glass-strong: rgba(20, 30, 50, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.2);
-  --border: rgba(255, 255, 255, 0.2);
+  /* iOS dark-material style: a neutral, fairly translucent dark tint —
+     the artwork glows through the blur instead of being blocked by an
+     opaque navy slab. */
+  --glass: rgba(40, 44, 52, 0.32);
+  --glass-strong: rgba(38, 42, 50, 0.44);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.12);
+}
+
+/* iOS-style dark glass for the big chrome surfaces: more blur plus
+   saturation boost (the signature iOS material look), neutral shadow
+   instead of the daylight blue glow. */
+body.chat-bg-on.chat-bg-dark .composer,
+body.chat-bg-on.chat-bg-dark .tabbar {
+  background: rgba(38, 42, 50, 0.44);
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(28px) saturate(1.8);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
+}
+
+body.chat-bg-on.chat-bg-dark .round-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 body.chat-bg-on.chat-bg-light {
@@ -1415,12 +1435,12 @@ body.chat-bg-on.chat-bg-light {
 /* Bubble surfaces/user-text hardcode their colors, so the variable flip
    above doesn't reach them — mirror it explicitly. */
 body.chat-bg-on.chat-bg-dark .bubble {
-  background: rgba(15, 25, 45, 0.45);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(34, 38, 46, 0.4);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 body.chat-bg-on.chat-bg-dark .bubble.user {
-  background: rgba(45, 75, 115, 0.5);
+  background: rgba(56, 84, 120, 0.45);
 }
 
 body.chat-bg-on.chat-bg-dark .bubble.user .bubble-text {
@@ -1886,4 +1906,46 @@ body.chat-bg-on.chat-bg-light .bubble.user .bubble-text {
   font-style: italic;
   font-size: 14px;
   color: var(--text-dim);
+}
+
+/* ---- iOS-style pressed feedback, app-wide ----
+   Every tappable control visibly reacts while the finger is down (needs
+   the no-op touchstart listener in app.js for iOS to apply :active).
+   Placed last so the transition wins over per-button rules. */
+button {
+  transition: transform 0.12s ease, opacity 0.12s ease, background-color 0.12s ease;
+}
+
+button:active {
+  transform: scale(0.93);
+  opacity: 0.7;
+}
+
+/* The hold-to-talk button is *supposed* to stay pressed while recording —
+   keep its enlarged recording look instead of the shrink. */
+#voiceBtn.recording:active {
+  transform: scale(1.12);
+  opacity: 1;
+}
+
+/* Lazy TTS: synthesis takes seconds — show a spinner in the play button
+   from tap until audio actually starts, so the tap never reads as
+   ignored. */
+.play-btn.loading svg {
+  display: none;
+}
+
+.play-btn.loading::after {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: playSpin 0.7s linear infinite;
+}
+
+@keyframes playSpin {
+  to { transform: rotate(360deg); }
 }

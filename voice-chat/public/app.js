@@ -126,6 +126,11 @@ function unlockAudioPlayback() {
   ttsPlayer.play().catch(() => {});
 }
 
+// iOS Safari only applies CSS :active states on touch once any touch
+// listener exists — this no-op enables the pressed-state feedback that
+// every button gets in style.css.
+document.addEventListener('touchstart', () => {}, { passive: true });
+
 // The custom background paints the app's full-screen backdrop
 // (body::before) while the chat tab is active — not just the chat view
 // box. Day/night images follow the existing 23:00-6:00 theme switch,
@@ -1326,6 +1331,9 @@ function attachAudioLazy(bubble, text) {
     unlockAudioPlayback();
 
     bubble.playBtn.disabled = true;
+    // Synthesis takes seconds — without a visible state change the tap
+    // reads as ignored ("点了跟没点一样"). Spinner until audio starts.
+    bubble.playBtn.classList.add('loading');
     try {
       // Send the original text (stage directions and all) — the server
       // decides how to prep it per the provider it actually ends up using.
@@ -1343,6 +1351,7 @@ function attachAudioLazy(bubble, text) {
     } catch (err) {
       statusText.textContent = 'TTS 出错: ' + err.message;
     } finally {
+      bubble.playBtn.classList.remove('loading');
       bubble.playBtn.disabled = false;
     }
   };
