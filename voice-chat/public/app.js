@@ -126,6 +126,74 @@ function unlockAudioPlayback() {
   ttsPlayer.play().catch(() => {});
 }
 
+// The custom background paints the app's full-screen backdrop
+// (body::before) while the chat tab is active — not just the chat view
+// box. Day/night images follow the existing 23:00-6:00 theme switch,
+// with each falling back to the other so a single image covers
+// round-the-clock. Each image's brightness is measured once so text
+// colors can flip to stay readable (the "字体颜色不打架" feature): dark
+// scenes get light text/dark glass, light scenes keep the day palette
+// even at night.
+let chatBgDayUrl = null;
+let chatBgNightUrl = null;
+let chatBgDayLum = null;
+let chatBgNightLum = null;
+
+function measureLuminance(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = 24;
+        c.height = 24;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, 24, 24);
+        const d = ctx.getImageData(0, 0, 24, 24).data;
+        let sum = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          sum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+        }
+        resolve(sum / (d.length / 4));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function applyChatBg(dayUrl, nightUrl) {
+  chatBgDayUrl = dayUrl || null;
+  chatBgNightUrl = nightUrl || null;
+  chatBgDayLum = null;
+  chatBgNightLum = null;
+  if (chatBgDayUrl) measureLuminance(chatBgDayUrl).then((l) => { chatBgDayLum = l; updateChatBgState(); });
+  if (chatBgNightUrl) measureLuminance(chatBgNightUrl).then((l) => { chatBgNightLum = l; updateChatBgState(); });
+  updateChatBgState();
+}
+
+function updateChatBgState() {
+  const night = document.documentElement.getAttribute('data-theme') === 'night';
+  const url = night ? (chatBgNightUrl || chatBgDayUrl) : (chatBgDayUrl || chatBgNightUrl);
+  const lum = night
+    ? (chatBgNightUrl ? chatBgNightLum : chatBgDayLum)
+    : (chatBgDayUrl ? chatBgDayLum : chatBgNightLum);
+  // Queried directly (not via the `views` map): this runs from
+  // applyNightMode() during initial script evaluation, before the tab
+  // navigation section's const bindings exist.
+  const chatViewEl = document.getElementById('view-chat');
+  const chatActive = chatViewEl && chatViewEl.classList.contains('active');
+  const on = Boolean(url) && Boolean(chatActive);
+  document.body.classList.toggle('chat-bg-on', on);
+  document.body.style.setProperty('--chat-bg-active', url ? `url("${url}")` : 'none');
+  document.body.classList.toggle('chat-bg-dark', on && lum !== null && lum < 0.5);
+  document.body.classList.toggle('chat-bg-light', on && lum !== null && lum >= 0.5);
+}
+
+
 function setBusy(busy) {
   sendBtn.disabled = busy;
 }
@@ -220,6 +288,9 @@ function applyNightMode() {
   const h = new Date().getHours();
   const isNight = h >= 23 || h < 6;
   document.documentElement.setAttribute('data-theme', isNight ? 'night' : 'day');
+  // The custom chat background follows the theme (day/night image and
+  // its measured brightness), so re-evaluate whenever the theme flips.
+  if (typeof updateChatBgState === 'function') updateChatBgState();
 }
 applyNightMode();
 setInterval(applyNightMode, 10 * 60 * 1000);
@@ -445,17 +516,6 @@ bgSlotNightBtn.addEventListener('click', () => {
   bgSlotDayBtn.classList.remove('active');
 });
 
-// Day/night both live as CSS vars on the chat view; the existing
-// :root[data-theme="night"] switch (23:00-6:00) picks which one shows.
-// Night falls back to the day image so a single upload still covers
-// round-the-clock.
-function applyChatBg(dayUrl, nightUrl) {
-  const chatView = document.getElementById('view-chat');
-  const hasAny = Boolean(dayUrl || nightUrl);
-  chatView.classList.toggle('custom-bg', hasAny);
-  chatView.style.setProperty('--chat-bg-day', dayUrl ? `url("${dayUrl}")` : (nightUrl ? `url("${nightUrl}")` : 'none'));
-  chatView.style.setProperty('--chat-bg-night', nightUrl ? `url("${nightUrl}")` : (dayUrl ? `url("${dayUrl}")` : 'none'));
-}
 
 function showBgCandidate(url, note) {
   bgCandidateUrl = url;
@@ -1625,6 +1685,9 @@ function switchView(name) {
   if (!views[name]) return;
   Object.entries(views).forEach(([key, el]) => el.classList.toggle('active', key === name));
   tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === name));
+  // The custom chat background paints the whole screen but only while
+  // the chat tab is up — re-evaluate on every tab switch.
+  updateChatBgState();
   if (name === 'home') loadHome();
   if (name === 'diary') loadDiary();
 }
