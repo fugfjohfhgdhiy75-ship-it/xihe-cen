@@ -89,6 +89,7 @@ const toggleAutoDiaryEl = document.getElementById('toggleAutoDiary');
 const toggleShowMoodEl = document.getElementById('toggleShowMood');
 const toggleDailySongEl = document.getElementById('toggleDailySong');
 const toggleSleepStateEl = document.getElementById('toggleSleepState');
+const toggleProactiveEl = document.getElementById('toggleProactive');
 const togetherSinceEl = document.getElementById('togetherSince');
 const togetherDaysEl = document.getElementById('togetherDays');
 const weatherCityEl = document.getElementById('weatherCity');
@@ -240,8 +241,24 @@ async function init() {
   await loadSettings();
   showRandomMoodStatus();
   await loadSessions();
+  checkProactive();
+  // While the app stays open, give him a chance to reach out in real time
+  // too (the endpoint itself enforces all the pacing rules).
+  setInterval(checkProactive, 25 * 60 * 1000);
 }
 init();
+
+// He may have "texted while she was away" — ask the server on open, and
+// refresh the transcript if a new message landed in the current session.
+async function checkProactive() {
+  try {
+    const res = await fetch('/api/proactive-check', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (data && data.sent && data.sessionId === currentSessionId) {
+      await selectSession(currentSessionId);
+    }
+  } catch {}
+}
 
 function loadVoices() {
   const voices = speechSynthesis.getVoices();
@@ -282,6 +299,7 @@ async function loadSettings() {
     toggleShowMoodEl.checked = data.show_mood !== false;
     toggleDailySongEl.checked = data.daily_song_enabled !== false;
     toggleSleepStateEl.checked = data.sleep_state_enabled !== false;
+    toggleProactiveEl.checked = data.proactive_enabled !== false;
     togetherSinceEl.value = data.together_since || '';
     weatherCityEl.value = data.weather_city || '';
     apiBaseUrlEl.value = data.api_base_url || '';
@@ -337,6 +355,7 @@ toggleAutoDiaryEl.addEventListener('change', () => patchSettings({ auto_diary: t
 toggleShowMoodEl.addEventListener('change', () => patchSettings({ show_mood: toggleShowMoodEl.checked }));
 toggleDailySongEl.addEventListener('change', () => patchSettings({ daily_song_enabled: toggleDailySongEl.checked }));
 toggleSleepStateEl.addEventListener('change', () => patchSettings({ sleep_state_enabled: toggleSleepStateEl.checked }));
+toggleProactiveEl.addEventListener('change', () => patchSettings({ proactive_enabled: toggleProactiveEl.checked }));
 togetherSinceEl.addEventListener('change', () => {
   renderTogetherDays();
   patchSettings({ together_since: togetherSinceEl.value });
@@ -674,6 +693,7 @@ async function selectSession(id) {
       const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
       const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at);
       if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
+      if (m.is_voice && m.audio_url) attachVoiceBar(bubble, m.audio_url);
     });
     statusText.textContent = '';
   } catch (err) {
@@ -837,6 +857,61 @@ function appendBubble(role, text, imageUrls, id, createdAt) {
   transcriptEl.appendChild(div);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   return bubble;
+}
+
+// ---- WeChat-style voice bubbles ----
+
+let currentVoiceBar = null;
+
+function resetVoiceBar(bar) {
+  if (bar) bar.classList.remove('playing');
+}
+
+ttsPlayer.addEventListener('ended', () => {
+  resetVoiceBar(currentVoiceBar);
+  currentVoiceBar = null;
+});
+
+function attachVoiceBar(bubble, url) {
+  if (!url || bubble.voiceBar) return;
+  const bar = document.createElement('button');
+  bar.type = 'button';
+  bar.className = 'voice-bar';
+  bar.innerHTML = `<span class="voice-bar-icon">${ICON_PLAY}</span><span class="voice-wave"><i></i><i></i><i></i></span><span class="voice-dur"></span>`;
+  const durEl = bar.querySelector('.voice-dur');
+  // Read the real duration off the clip's metadata rather than storing it.
+  const probe = new Audio();
+  probe.preload = 'metadata';
+  probe.src = url;
+  probe.addEventListener('loadedmetadata', () => {
+    if (Number.isFinite(probe.duration)) durEl.textContent = Math.max(1, Math.round(probe.duration)) + '″';
+  });
+  bar.addEventListener('click', () => {
+    unlockAudioPlayback();
+    if (currentVoiceBar === bar && !ttsPlayer.paused) {
+      ttsPlayer.pause();
+      resetVoiceBar(bar);
+      currentVoiceBar = null;
+      return;
+    }
+    resetVoiceBar(currentVoiceBar);
+    ttsPlayer.pause();
+    ttsPlayer.src = url;
+    ttsPlayer.playbackRate = 1;
+    ttsPlayer.play().catch(() => {});
+    bar.classList.add('playing');
+    currentVoiceBar = bar;
+  });
+  // The bar goes above the transcript text; the transcript stays visible
+  // but styled secondary (unlike WeChat's hidden-until-long-press).
+  const row = bubble.el.querySelector('.bubble-row');
+  bubble.el.insertBefore(bar, row);
+  bubble.textEl.classList.add('voice-transcript');
+  // The lazy-TTS ▶/speed controls would synthesize a second voice for a
+  // bubble that already ships with audio — hide them on voice bubbles.
+  const controls = bubble.el.querySelector('.audio-controls');
+  if (controls) controls.classList.add('hidden');
+  bubble.voiceBar = bar;
 }
 
 // Inline confirm card for a milestone he proposed ([记:...] marker) —
@@ -1311,6 +1386,156 @@ textInput.addEventListener('keydown', (e) => {
     sendMessage(textInput.value);
   }
 });
+
+// ---- Hold-to-talk voice messages ----
+
+const voiceBtn = document.getElementById('voiceBtn');
+let vmStream = null;
+let vmRecorder = null;
+let vmChunks = [];
+let vmStartAt = 0;
+let vmTimer = null;
+let vmActive = false;
+
+const VM_MIN_MS = 600;      // shorter than this = accidental tap, discard
+const VM_MAX_MS = 60000;    // hard cap like WeChat
+
+async function startVoiceRecord() {
+  if (vmActive || !currentSessionId) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    statusText.textContent = '这个浏览器不支持录音';
+    return;
+  }
+  try {
+    vmStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    statusText.textContent = '需要麦克风权限才能发语音';
+    return;
+  }
+  vmActive = true;
+  vmChunks = [];
+  const mime = callMimeType();
+  vmRecorder = mime ? new MediaRecorder(vmStream, { mimeType: mime }) : new MediaRecorder(vmStream);
+  vmRecorder.addEventListener('dataavailable', (e) => { if (e.data && e.data.size) vmChunks.push(e.data); });
+  vmRecorder.start();
+  vmStartAt = Date.now();
+  voiceBtn.classList.add('recording');
+  vmTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - vmStartAt) / 1000);
+    statusText.textContent = `🎤 正在录音 ${sec}s · 松开发送`;
+    if (Date.now() - vmStartAt >= VM_MAX_MS) stopVoiceRecord(true);
+  }, 250);
+  statusText.textContent = '🎤 正在录音 · 松开发送';
+}
+
+function stopVoiceRecord(send) {
+  if (!vmActive) return;
+  vmActive = false;
+  clearInterval(vmTimer);
+  voiceBtn.classList.remove('recording');
+  const durMs = Date.now() - vmStartAt;
+  const recorder = vmRecorder;
+  const stream = vmStream;
+  vmRecorder = null;
+  vmStream = null;
+  if (!recorder || recorder.state !== 'recording') {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    statusText.textContent = '';
+    return;
+  }
+  recorder.addEventListener('stop', () => {
+    stream.getTracks().forEach((t) => t.stop());
+    if (!send || durMs < VM_MIN_MS) {
+      statusText.textContent = durMs < VM_MIN_MS ? '说话时间太短了' : '';
+      return;
+    }
+    const mime = recorder.mimeType || 'audio/mp4';
+    const blob = new Blob(vmChunks, { type: mime });
+    sendVoiceMessage(blob, mime);
+  });
+  recorder.stop();
+}
+
+voiceBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  voiceBtn.setPointerCapture(e.pointerId);
+  startVoiceRecord();
+});
+voiceBtn.addEventListener('pointerup', () => stopVoiceRecord(true));
+voiceBtn.addEventListener('pointercancel', () => stopVoiceRecord(false));
+// Keep long-press from popping the iOS context menu instead of recording.
+voiceBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+async function sendVoiceMessage(blob, mime) {
+  if (!currentSessionId) return;
+  setBusy(true);
+  statusText.textContent = '发送中...';
+  const userBubble = appendBubble('user', '(语音识别中...)');
+  const assistantBubble = appendBubble('assistant', '');
+  let fullText = '';
+  let gotImage = false;
+  let imageNote = null;
+  try {
+    const form = new FormData();
+    form.append('sessionId', currentSessionId);
+    form.append('voice', blob, mime.includes('webm') ? 'voice.webm' : 'voice.m4a');
+
+    const res = await fetch('/api/chat', { method: 'POST', body: form });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = JSON.parse(line.slice(6));
+        if (payload.error) throw new Error(payload.error);
+        if (payload.userMessageId) {
+          userBubble.id = payload.userMessageId;
+          if (payload.userText) renderBubbleText(userBubble.textEl, payload.userText);
+          if (payload.userVoiceUrl) attachVoiceBar(userBubble, payload.userVoiceUrl);
+        }
+        if (payload.text) {
+          fullText += payload.text;
+          renderBubbleText(assistantBubble.textEl, formatForDisplay(fullText));
+          transcriptEl.scrollTop = transcriptEl.scrollHeight;
+        }
+        if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
+        if (payload.voiceUrl) attachVoiceBar(assistantBubble, payload.voiceUrl);
+        if (payload.imageNote) imageNote = payload.imageNote;
+        if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
+        if (payload.assistantMessageId) assistantBubble.id = payload.assistantMessageId;
+      }
+    }
+
+    if (fullText) {
+      if (!assistantBubble.voiceBar) attachAudioLazy(assistantBubble, fullText);
+      statusText.textContent = imageNote || '';
+      const s = sessions.find((x) => x.id === currentSessionId);
+      if (s) {
+        s.updated_at = new Date().toISOString();
+        sessions.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+        renderSessionsList();
+      }
+    } else if (!gotImage) {
+      assistantBubble.textEl.textContent = '(没有收到回复——服务器可能刚被唤醒或正在重启,点"重新回答"再试一次)';
+      statusText.textContent = '';
+    } else {
+      statusText.textContent = '';
+    }
+  } catch (err) {
+    assistantBubble.el.remove();
+    userBubble.textEl.textContent = '(语音发送失败: ' + err.message + ')';
+    statusText.textContent = '';
+  } finally {
+    setBusy(false);
+  }
+}
 
 function renderImagePreview() {
   imagePreview.innerHTML = '';

@@ -66,6 +66,15 @@ alter table settings add column if not exists photo_reference_url text;
 alter table settings add column if not exists chat_bg_url text;
 alter table settings add column if not exists chat_bg_night_url text;
 
+-- 语音条(微信式):audio_url 是录音/合成语音文件,is_voice 标记这条消息
+-- 以语音条形式展示;proactive 标记"他主动发起"的消息(用于控制频率)
+alter table messages add column if not exists audio_url text;
+alter table messages add column if not exists is_voice boolean not null default false;
+alter table messages add column if not exists proactive boolean not null default false;
+
+-- "他会主动找你"开关(更多页)
+alter table settings add column if not exists proactive_enabled boolean not null default true;
+
 -- 纪念册:两人共同确认过的重要事件。"他"在聊天里提议(pending),她在
 -- 聊天气泡下点"记下来"确认(confirmed)后永久生效——confirmed 的条目
 -- 会拼进每一个窗口每一轮对话的提示词里,永不压缩、跨窗口共用。

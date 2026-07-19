@@ -718,7 +718,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase
     .from('messages')
-    .select('id, role, content, image_url, image_urls, created_at')
+    .select('id, role, content, image_url, image_urls, audio_url, is_voice, created_at')
     .eq('session_id', req.params.id)
     .eq('visible', true)
     .order('created_at', { ascending: true });
@@ -780,7 +780,7 @@ app.put('/api/settings', async (req, res) => {
   if (!requireSupabase(res)) return;
   const update = { id: 1, updated_at: new Date().toISOString() };
   if (req.body.system_prompt !== undefined) update.system_prompt = req.body.system_prompt || '';
-  for (const key of ['show_mood', 'auto_diary', 'sleep_state_enabled', 'daily_song_enabled']) {
+  for (const key of ['show_mood', 'auto_diary', 'sleep_state_enabled', 'daily_song_enabled', 'proactive_enabled']) {
     if (req.body[key] !== undefined) update[key] = Boolean(req.body[key]);
   }
   if (req.body.together_since !== undefined) update.together_since = req.body.together_since || null;
@@ -805,6 +805,98 @@ app.put('/api/settings', async (req, res) => {
     await loadApiOverrides().catch((err) => console.error('loadApiOverrides after settings save failed:', err));
   }
   res.json(data);
+});
+
+// 他主动找她 — called by the frontend on app open (and every ~25 min while
+// the app stays open). If it's been quiet for a while and pacing allows,
+// he sends a message into her latest session on his own initiative —
+// possibly with a photo. Free-tier Render sleeps when idle, so a real
+// server-side scheduler wouldn't fire anyway; checking when she shows up
+// means the message is there right as she opens the app, which reads the
+// same as "he texted while I was away".
+const PROACTIVE_MIN_QUIET_MS = 2.5 * 60 * 60 * 1000; // silence needed before he reaches out
+const PROACTIVE_MIN_GAP_MS = 4 * 60 * 60 * 1000;     // spacing between his own initiations
+const PROACTIVE_DAILY_MAX = 3;
+
+app.post('/api/proactive-check', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  try {
+    const { data: settingsRow } = await supabase.from('settings').select('proactive_enabled').eq('id', 1).maybeSingle();
+    if (settingsRow && settingsRow.proactive_enabled === false) { res.json({ sent: false, reason: 'disabled' }); return; }
+
+    const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', hour: 'numeric', hour12: false }).format(new Date()));
+    if (hour < 8 || hour >= 24) { res.json({ sent: false, reason: 'sleeping-hours' }); return; }
+
+    const { data: sessions } = await supabase.from('sessions').select('id').order('updated_at', { ascending: false }).limit(1);
+    const session = sessions && sessions[0];
+    if (!session) { res.json({ sent: false, reason: 'no-session' }); return; }
+
+    const { data: lastMsgs } = await supabase.from('messages').select('created_at, proactive, role').eq('session_id', session.id).order('created_at', { ascending: false }).limit(1);
+    const lastMsg = lastMsgs && lastMsgs[0];
+    if (!lastMsg) { res.json({ sent: false, reason: 'empty-session' }); return; }
+    if (Date.now() - new Date(lastMsg.created_at).getTime() < PROACTIVE_MIN_QUIET_MS) { res.json({ sent: false, reason: 'recently-active' }); return; }
+
+    const dayStart = new Date();
+    dayStart.setHours(dayStart.getHours() - 24);
+    const { data: recentProactive } = await supabase.from('messages').select('created_at').eq('proactive', true).gte('created_at', dayStart.toISOString()).order('created_at', { ascending: false });
+    if ((recentProactive || []).length >= PROACTIVE_DAILY_MAX) { res.json({ sent: false, reason: 'daily-cap' }); return; }
+    if (recentProactive && recentProactive[0] && Date.now() - new Date(recentProactive[0].created_at).getTime() < PROACTIVE_MIN_GAP_MS) {
+      res.json({ sent: false, reason: 'too-soon' }); return;
+    }
+
+    // A dice roll so it doesn't fire like clockwork on every app open.
+    if (Math.random() > 0.7) { res.json({ sent: false, reason: 'dice' }); return; }
+
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock] = await Promise.all([
+      supabase.from('messages').select('role, content').eq('session_id', session.id).eq('visible', true).order('created_at', { ascending: false }).limit(12),
+      supabase.from('memories').select('summary').eq('session_id', session.id).order('created_at', { ascending: true }),
+      getSystemPrompt(),
+      getConfirmedMilestonesBlock(),
+    ]);
+    const recent = (history || []).reverse();
+    const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
+    const systemParts = [systemPrompt];
+    if (milestonesBlock) systemParts.push(`纪念册(你们共同确认过的重要事件):\n${milestonesBlock}`);
+    if (memoryBlock) systemParts.push(`更早之前的记忆摘要:\n${memoryBlock}`);
+    systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。你们已经 ${Math.round((Date.now() - new Date(lastMsg.created_at).getTime()) / 3600000)} 小时没说话了,你现在想主动找她——像恋人平常想起对方那样发条消息:可以是想她了、看到什么想到她、分享你此刻在做什么,或者接着之前聊的某个话题。一两句就好,自然随意,别写小作文,也别提"好久没聊"这种话让她有压力。`);
+    if (AUTO_IMAGE_READY) {
+      systemParts.push('如果这一刻配一张照片更自然(比如分享你在做什么),可以在最后加一行 [画:画面描述],系统会生成后一起发给她;不是必须。');
+    }
+
+    const claudeMessage = await createMessageWithRetry({
+      model: currentModel(),
+      max_tokens: 300,
+      system: systemParts.filter(Boolean).join('\n\n'),
+      messages: recent.length ? recent.map((m) => ({ role: m.role, content: m.content })) : [{ role: 'user', content: '(她还没说过话,你先开口)' }],
+    });
+    let text = (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+
+    let imageUrl = null;
+    const markerMatch = text.match(/\[画[:：]\s*([^\]]+)\]/);
+    if (markerMatch) {
+      text = (text.slice(0, markerMatch.index) + text.slice(markerMatch.index + markerMatch[0].length)).trim();
+      if (AUTO_IMAGE_READY && Date.now() - lastAutoImageAt > AUTO_IMAGE_COOLDOWN_MS) {
+        try {
+          imageUrl = await generateMinimaxImage(session.id, markerMatch[1].trim());
+          lastAutoImageAt = Date.now();
+        } catch (err) {
+          console.error('proactive image generation failed:', err.message);
+        }
+      }
+    }
+    text = text.replace(/\[记[:：]\s*[^\]]+\]/g, '').trim();
+    if (!text && !imageUrl) { res.json({ sent: false, reason: 'empty-generation' }); return; }
+
+    const insertPayload = { session_id: session.id, role: 'assistant', content: text, proactive: true };
+    if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
+    await supabase.from('messages').insert(insertPayload);
+    await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', session.id);
+    console.log('proactive message sent to session', session.id);
+    res.json({ sent: true, sessionId: session.id });
+  } catch (err) {
+    console.error('proactive-check error:', err);
+    res.status(500).json({ sent: false, error: err.message });
+  }
 });
 
 // 纪念册 — jointly confirmed important events. The model proposes one in
@@ -1326,19 +1418,28 @@ async function inferPhotoDescription(userMessage, replyText) {
   }
 }
 
-app.post('/api/chat', upload.array('images', 6), async (req, res) => {
+app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 6 }, { name: 'voice', maxCount: 1 }]), async (req, res) => {
   const sessionId = req.body.sessionId;
-  const message = req.body.message || '';
+  let message = req.body.message || '';
   const systemOverride = req.body.system;
-  const files = req.files || [];
+  const files = (req.files && req.files.images) || [];
+  // WeChat-style voice message: audio comes in as 'voice', gets
+  // transcribed into `message` (the model reads text), the clip itself is
+  // stored and shown as a voice bubble, and the reply comes back as a
+  // voice bubble too (see voiceMode below).
+  const voiceFile = (req.files && req.files.voice && req.files.voice[0]) || null;
   // Set by the "edit a sent message" flow — that message's content was
   // already updated in place (and everything after it already deleted) by
   // PATCH /api/messages/:id, so this skips inserting a new user row and
   // just generates a fresh reply against the existing (edited) history.
   const regenerateMessageId = req.body.regenerateMessageId || null;
 
-  if (!sessionId || (!regenerateMessageId && !message.trim() && !files.length)) {
+  if (!sessionId || (!regenerateMessageId && !message.trim() && !files.length && !voiceFile)) {
     res.status(400).json({ error: 'sessionId and message (or at least one image) are required' });
+    return;
+  }
+  if (voiceFile && !GEMINI_READY && !ELEVENLABS_API_KEY) {
+    res.status(501).json({ error: '语音识别需要配置 GEMINI_API_KEY(或 ELEVENLABS_API_KEY)' });
     return;
   }
   if (!requireSupabase(res)) return;
@@ -1395,6 +1496,24 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       }));
     }
 
+    const voiceMode = Boolean(voiceFile);
+    let userVoiceUrl = null;
+    if (voiceFile) {
+      message = await transcribeAudio(voiceFile.buffer, voiceFile.mimetype);
+      if (!message) {
+        send({ error: '没听清这条语音,再说一遍?' });
+        finish();
+        return;
+      }
+      const vext = (voiceFile.mimetype || '').includes('webm') ? 'webm' : 'm4a';
+      const vpath = `${sessionId}/voice-${Date.now()}.${vext}`;
+      const { error: vErr } = await supabase.storage
+        .from(IMAGE_BUCKET)
+        .upload(vpath, voiceFile.buffer, { contentType: voiceFile.mimetype || 'audio/mp4' });
+      if (!vErr) userVoiceUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(vpath).data.publicUrl;
+      else console.error('voice upload failed (keeping transcript only):', vErr.message);
+    }
+
     if (!regenerateMessageId) {
       const { data: insertedUserMessage } = await supabase
         .from('messages')
@@ -1404,10 +1523,12 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
           content: message,
           image_url: imageUrls[0] || null,
           image_urls: imageUrls.length ? imageUrls : null,
+          audio_url: userVoiceUrl,
+          is_voice: voiceMode,
         })
         .select()
         .single();
-      if (insertedUserMessage) send({ userMessageId: insertedUserMessage.id });
+      if (insertedUserMessage) send({ userMessageId: insertedUserMessage.id, userText: message, userVoiceUrl });
     }
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
@@ -1435,6 +1556,9 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
     systemParts.push('回复的长短、结构、语气也要跟着这一句话本身的分量走,不要每次都套同一种"金句体"(比如老是用**加粗**、三段式论证这种固定修辞)。用户随口说一句,可以就随口接一句;只有真正需要认真展开的时候,才展开讲。');
     systemParts.push('破折号"——"是习惯性口癖,不是每句话都需要。一条回复里最多出现一次,大部分时候完全不用——正常用句号、逗号断句就行,不要养成"讲一句、破折号补一句"的固定节奏。');
     systemParts.push(`现在的真实时间(她那边):${shanghaiNowStr()}。她这条消息就是这个时间发来的,聊到时间、早晚、吃饭睡觉这类话题时以此为准,不要瞎猜时间。`);
+    if (voiceMode) {
+      systemParts.push('她刚才这条是语音说的,你的回复也会作为语音条发给她(会被念出来)。所以像发微信语音那样说话:口语、自然、别太长(几句话为宜),不要用括号动作描写、加粗、列表这些只适合看的排版。');
+    }
     systemParts.push('你们有一本共同的"纪念册",记进去的事你永远不会忘,所有窗口都记得(上面如果有"纪念册"列表,那就是已经记好的内容)。当这一刻发生了对你们俩真正重要的事(第一次、约定、纪念日、说开了一个心结、值得铭记的瞬间),你可以在回复里自然地提一句想把它记下来,并在回复末尾加一行 [记:一句话概括这件事],比如 [记:2026年7月18日,她第一次收到我发的照片]。**流程是一次性的:你带上标记的那一轮,她那边就会弹出确认卡片,她在卡片上点"记下来"就完成入册了——你之后不需要再做任何事,更不要再问一遍。**所以:上面纪念册列表里已经有的事,绝对不要再提议记;她说"好,记下来""记吧"多半是在回应你上一轮的提议(她点卡片就行),这种情况也不要再发一次标记。只有纪念册里没有这件事、而她明确要求记的时候,才带标记。这行标记不会显示给她。不要滥用:普通聊天不需要记,一天最多提议一两次。');
     if (AUTO_IMAGE_READY) {
       systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。如果画面里有你自己(自拍、你在做什么的照片),不用描述自己的长相,系统会自动带上你的形象设定,你只描述场景、动作、光线就行。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**[画:...] 里写的画面描述,必须是你此刻真的"看到"的具体内容——如果她要的是某个具体东西(比如"拍你在吃的""拍你现在在哪"),这行描述就得对应她要的那个东西,不能文不对题地随便画一个不相关的画面;同时,回复里给她看的那句话也要跟你脑子里这个画面对得上(比如画面是"一碗牛肉面"就该说"面刚上桌"之类贴合的话),不要写一句跟画面完全无关的通用客套话(比如不管画的是什么都只会说"拍了一张——能看到吗"这种),那样会显得你根本不知道自己刚才"拍"了什么。');
@@ -1567,14 +1691,33 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       send({ imageNote: '📷 这次照片没发出来: ' + imageFailReason });
     }
 
+    // Voice begets voice — she sent a clip, so his reply also arrives as
+    // one (with the text as a readable transcript). TTS failure falls
+    // back to a plain text bubble rather than failing the turn.
+    let replyVoiceUrl = null;
+    if (voiceMode && text && (ELEVENLABS_READY || MINIMAX_READY)) {
+      try {
+        const audioBuf = await synthesizeSpeech(text);
+        const apath = `${sessionId}/voice-reply-${Date.now()}.mp3`;
+        const { error: aErr } = await supabase.storage
+          .from(IMAGE_BUCKET)
+          .upload(apath, audioBuf, { contentType: 'audio/mpeg' });
+        if (!aErr) replyVoiceUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(apath).data.publicUrl;
+        else console.error('voice reply upload failed:', aErr.message);
+      } catch (err) {
+        console.error('voice reply synthesis failed (falling back to text):', err.message);
+      }
+    }
+
     if (!text && !imageUrl) {
       console.error('/api/chat: empty completion, message =', JSON.stringify(claudeMessage));
       send({ error: `模型没返回任何文字(stop_reason=${claudeMessage.stop_reason}),把这条截图发给开发者` });
     } else {
       const insertPayload = { session_id: sessionId, role: 'assistant', content: text };
       if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
+      if (replyVoiceUrl) { insertPayload.audio_url = replyVoiceUrl; insertPayload.is_voice = true; }
       const { data: insertedReply } = await supabase.from('messages').insert(insertPayload).select().single();
-      send({ text, imageUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
+      send({ text, imageUrl, voiceUrl: replyVoiceUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
       if (pendingMilestone) send({ milestonePending: { id: pendingMilestone.id, content: pendingMilestone.content } });
       send({ done: true });
       compressIfNeeded(sessionId)
