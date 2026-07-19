@@ -370,6 +370,25 @@ function toClaudeMessages(rows) {
   });
 }
 
+// The system prompt has asked (twice now, in stronger and stronger terms)
+// for at most one 破折号 per reply — she keeps seeing it ignored: it
+// starts appropriately once, then the model imitates its *own* growing
+// pile of recent turns that used it and the habit snowballs across a
+// reply (or across turns) despite the instruction. A prompt is a
+// request, not a guarantee, and this one keeps losing to the model's own
+// in-context momentum — so enforce the cap in code instead of asking
+// again: the first 破折号 in a reply passes through untouched, every one
+// after it is swapped for a plain comma (exactly the "just use commas
+// instead" fallback the prompt itself already describes).
+function capEmDashes(text) {
+  if (!text) return text;
+  let seen = 0;
+  return text.replace(/—+/g, () => {
+    seen += 1;
+    return seen === 1 ? '——' : '，';
+  });
+}
+
 async function getSetting(key) {
   if (!SUPABASE_READY) return undefined;
   const { data } = await supabase.from('settings').select(key).eq('id', 1).maybeSingle();
@@ -1005,6 +1024,7 @@ app.post('/api/proactive-check', async (req, res) => {
       }
     }
     text = text.replace(/\[记[:：]\s*[^\]]+\]/g, '').trim();
+    text = capEmDashes(text);
     if (!text && !imageUrl) { res.json({ sent: false, reason: 'empty-generation' }); return; }
 
     const insertPayload = { session_id: session.id, role: 'assistant', content: text, proactive: true };
@@ -1621,6 +1641,7 @@ async function maybeSendSpontaneousFollowup(sessionId, systemPrompt, historyMess
         }
       }
     }
+    lineText = capEmDashes(lineText);
     if (!lineText && !imageUrl) continue;
 
     const insertPayload = { session_id: sessionId, role: 'assistant', content: lineText, spontaneous: true };
@@ -2014,6 +2035,8 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       send({ imageNote: `⚠️ 有 ${skippedImageCount} 张图片处理失败,已跳过,其余照常发送` });
     }
 
+    text = capEmDashes(text);
+
     // Her call: his replies stay text-only even when she sent voice — the
     // existing lazy ▶ button synthesizes speech on demand, which avoids
     // paying TTS for every reply she may never listen to.
@@ -2377,6 +2400,7 @@ app.post('/api/call-turn', upload.single('audio'), async (req, res) => {
     });
     let replyText = (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
     replyText = replyText.replace(/\[画[:：]\s*[^\]]+\]/g, '').replace(/\[记[:：]\s*[^\]]+\]/g, '').trim();
+    replyText = capEmDashes(replyText);
     if (!replyText) { res.status(502).json({ error: '他没说出话来,再试一次' }); return; }
 
     await supabase.from('messages').insert({ session_id: sessionId, role: 'assistant', content: replyText });
