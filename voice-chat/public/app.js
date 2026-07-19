@@ -149,6 +149,12 @@ const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAE
 
 const ICON_PLAY = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+// Small linework icons for the bubble action chips (复制/重新回答) — same
+// stroke style as iOS's own toolbar glyphs, so they read as icon buttons
+// rather than plain hyperlink-style text.
+const ICON_COPY = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
+const ICON_CHECK = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>';
+const ICON_REDO = '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>';
 
 function unlockAudioPlayback() {
   ttsPlayer.src = SILENT_WAV;
@@ -1156,6 +1162,7 @@ async function selectSession(id) {
   renderSessionsList();
 
   transcriptEl.innerHTML = '';
+  lastBubbleTimeMs = null;
   statusText.textContent = '加载记录中...';
   try {
     const res = await fetch(`/api/sessions/${id}/messages`);
@@ -1222,21 +1229,48 @@ function renderBubbleText(el, text) {
   });
 }
 
-function formatMsgTime(value) {
+// WeChat/iMessage don't stamp every bubble with a time — they drop a
+// small centered divider into the stream only when enough silence has
+// passed since the last message, since a timestamp on every single
+// bubble is mostly redundant noise once messages are seconds apart.
+// Reset lastBubbleTimeMs to null (see selectSession) whenever the
+// transcript itself gets cleared, so switching sessions always shows a
+// fresh divider for the first message instead of comparing against
+// whatever the previous session's last message time happened to be.
+let lastBubbleTimeMs = null;
+const TIME_DIVIDER_GAP_MS = 5 * 60 * 1000;
+
+function formatTimeDivider(value) {
   const d = value ? new Date(value) : new Date();
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = new Date();
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, now)) return timeStr;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return `昨天 ${timeStr}`;
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${timeStr}`;
+}
+
+function maybeInsertTimeDivider(createdAt) {
+  const t = createdAt ? new Date(createdAt).getTime() : Date.now();
+  if (Number.isNaN(t)) return;
+  if (lastBubbleTimeMs === null || Math.abs(t - lastBubbleTimeMs) > TIME_DIVIDER_GAP_MS) {
+    const divider = document.createElement('div');
+    divider.className = 'time-divider';
+    divider.textContent = formatTimeDivider(createdAt);
+    transcriptEl.appendChild(divider);
+  }
+  lastBubbleTimeMs = t;
 }
 
 function appendBubble(role, text, imageUrls, id, createdAt) {
+  maybeInsertTimeDivider(createdAt);
+
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
-
-  const timeEl = document.createElement('div');
-  timeEl.className = 'bubble-time';
-  timeEl.textContent = formatMsgTime(createdAt);
-  div.appendChild(timeEl);
 
   const urls = Array.isArray(imageUrls) ? imageUrls : (imageUrls ? [imageUrls] : []);
   if (urls.length) {
@@ -1303,12 +1337,12 @@ function appendBubble(role, text, imageUrls, id, createdAt) {
   const copyBtn = document.createElement('button');
   copyBtn.type = 'button';
   copyBtn.className = 'bubble-action-btn';
-  copyBtn.textContent = '复制';
+  copyBtn.innerHTML = `<span class="action-icon">${ICON_COPY}</span><span class="action-label">复制</span>`;
   copyBtn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(bubble.textEl.textContent);
-      copyBtn.textContent = '已复制';
-      setTimeout(() => { copyBtn.textContent = '复制'; }, 1500);
+      copyBtn.innerHTML = `<span class="action-icon">${ICON_CHECK}</span><span class="action-label">已复制</span>`;
+      setTimeout(() => { copyBtn.innerHTML = `<span class="action-icon">${ICON_COPY}</span><span class="action-label">复制</span>`; }, 1500);
     } catch {
       statusText.textContent = '复制失败,长按文字手动复制吧';
     }
@@ -1319,7 +1353,7 @@ function appendBubble(role, text, imageUrls, id, createdAt) {
     const regenBtn = document.createElement('button');
     regenBtn.type = 'button';
     regenBtn.className = 'bubble-action-btn';
-    regenBtn.textContent = '重新回答';
+    regenBtn.innerHTML = `<span class="action-icon">${ICON_REDO}</span><span class="action-label">重新回答</span>`;
     regenBtn.addEventListener('click', () => regenerateAssistantBubble(bubble));
     actions.appendChild(regenBtn);
   }
@@ -2183,6 +2217,10 @@ const QUOTES = [
   { en: 'The best love is the kind that awakens the soul and makes us reach for more. — Nicholas Sparks, The Notebook', zh: '最好的爱,是能唤醒灵魂、让人渴望更多的那种。—— 尼古拉斯·斯帕克斯,《恋恋笔记本》' },
   { en: 'You are, and always have been, my dream. — Nicholas Sparks, The Notebook', zh: '你一直都是,而且永远都是,我的梦。—— 尼古拉斯·斯帕克斯,《恋恋笔记本》' },
 ];
+// This local list is now just the offline/no-Supabase fallback — the
+// primary source is /api/daily-quote below, which asks the model fresh
+// each day (see pickDailyQuote in server.js) instead of cycling through a
+// fixed pool, so it doesn't repeat nearly as fast.
 let lastQuoteIndex = -1;
 function showRandomQuote() {
   let i = Math.floor(Math.random() * QUOTES.length);
@@ -2191,7 +2229,41 @@ function showRandomQuote() {
   quoteTextEl.textContent = QUOTES[i].en;
   quoteZhEl.textContent = QUOTES[i].zh;
 }
-quoteRefreshBtn.addEventListener('click', showRandomQuote);
+
+async function loadDailyQuote() {
+  try {
+    const res = await fetch('/api/daily-quote');
+    const data = await res.json();
+    if (!res.ok || !data.en) throw new Error(data.error || '没拿到今天的情话');
+    quoteTextEl.textContent = data.en;
+    quoteZhEl.textContent = data.zh;
+  } catch {
+    // Network hiccup, cold start, or the model didn't return a valid
+    // quote this time — fall back to the local pool instead of leaving
+    // the card blank.
+    showRandomQuote();
+  }
+}
+
+async function rerollDailyQuote() {
+  quoteRefreshBtn.disabled = true;
+  try {
+    const res = await fetch('/api/daily-quote/reroll', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.en) throw new Error(data.error || '换一句失败');
+    quoteTextEl.textContent = data.en;
+    quoteZhEl.textContent = data.zh;
+  } catch {
+    showRandomQuote();
+  } finally {
+    quoteRefreshBtn.disabled = false;
+  }
+}
+
+quoteRefreshBtn.addEventListener('click', () => {
+  if (supabaseReady) rerollDailyQuote();
+  else showRandomQuote();
+});
 
 function renderHomeDate() {
   const now = new Date();
@@ -2324,7 +2396,11 @@ let homeQuoteShown = false;
 async function loadHome() {
   renderHomeDate();
   renderNowStatus();
-  if (!homeQuoteShown) { showRandomQuote(); homeQuoteShown = true; }
+  if (!homeQuoteShown) {
+    homeQuoteShown = true;
+    if (supabaseReady) loadDailyQuote();
+    else showRandomQuote();
+  }
   if (!supabaseReady) return;
   loadSong();
   loadTemperature();

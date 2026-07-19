@@ -873,14 +873,15 @@ h1 {
   line-break: loose;
 }
 
-.bubble .bubble-time {
-  font-size: 10px;
+/* Centered, occasional — dropped into the message stream (not attached to
+   any one bubble) only when there's been a real gap since the last
+   message, same convention as WeChat/iMessage. See maybeInsertTimeDivider
+   in app.js. */
+.time-divider {
+  align-self: center;
+  font-size: 11px;
   color: var(--text-faint);
-  margin-bottom: 3px;
-}
-
-.bubble.user .bubble-time {
-  align-self: flex-end;
+  margin: 4px 0;
 }
 
 .bubble .bubble-actions {
@@ -893,14 +894,27 @@ h1 {
   justify-content: flex-end;
 }
 
+/* Small icon+label chips (WeChat/iOS-style toolbar buttons) rather than
+   bare hyperlink-looking text — same faint pill treatment as
+   .audio-controls below, so every row of message controls in a bubble
+   reads as one consistent design language. */
 .bubble .bubble-action-btn {
-  background: none;
-  border: none;
-  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 999px;
+  padding: 3px 9px;
   font-size: 11px;
   color: var(--text-faint);
   cursor: pointer;
   font-family: inherit;
+}
+
+.bubble .bubble-action-btn .action-icon {
+  display: flex;
+  flex: none;
 }
 
 /* Distinct but still both legible on the glass — his replies read as a
@@ -944,14 +958,17 @@ h1 {
   display: flex;
 }
 
+/* Filled circular control (like iOS's own Voice Memos/Podcasts play
+   buttons) instead of a bare transparent glyph — reads as an actual
+   control rather than plain decoration floating next to the speed pill. */
 .bubble .play-btn {
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: none;
-  background: transparent;
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
   cursor: pointer;
   display: none;
   align-items: center;

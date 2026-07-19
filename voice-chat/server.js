@@ -520,6 +520,56 @@ REASON: 推荐理由`;
   return parsed;
 }
 
+// Home page love-quote card, refreshed daily instead of picked from a
+// fixed local list (see QUOTES in app.js, kept as an instant-load/offline
+// fallback). There's no reliable free "real quotes" API left to call
+// here — the well-known ones (quotable.io etc.) have gone offline over
+// the years — so this asks the model directly instead, the same way
+// pickDailySong above does, with the same "only if you're genuinely sure
+// it's real" guardrail to keep hallucinated attributions out.
+async function pickDailyQuote(rejectedQuotes) {
+  const recentUsed = [];
+  const rejectedAll = [...rejectedQuotes];
+  try {
+    const { data } = await supabase
+      .from('daily_quotes')
+      .select('en, rejected')
+      .order('quote_date', { ascending: false })
+      .limit(30);
+    for (const row of data || []) {
+      if (row.en) recentUsed.push(row.en);
+      for (const r of row.rejected || []) rejectedAll.push(r);
+    }
+  } catch (err) {
+    console.error('pickDailyQuote: recent-quote history load failed (continuing without):', err.message);
+  }
+  const uniqueAvoid = [...new Set([...recentUsed, ...rejectedAll])].slice(0, 40);
+  const avoidBlock = uniqueAvoid.length ? `\n最近已经用过的句子,不要重复这些(哪怕是同一句的不同措辞也算重复): ${uniqueAvoid.join(' / ')}` : '';
+
+  const prompt = `你在帮一个情侣间的私人小程序挑选"首页情话卡片"的内容,今天需要一句关于爱情/陪伴的英文名句(可以是名著、诗歌、电影台词、名人语录,只要是真实存在、有明确出处的),配一句准确的中文翻译。${avoidBlock}
+
+重要:只能选你非常确定真实存在、出处和作者/角色信息确定无误的句子——宁可选一句更大众但你完全确定出处的,也不要为了新意去猜一句你只是"大概觉得"存在或者记不准出处的。如果确实想不出还没用过的、你能确定出处的句子,可以放宽到没那么家喻户晓但你确定真实的句子,而不是编一句。作者/出处信息必须真实,不要编造。
+
+严格按下面这个格式输出,不要用 JSON,两行,不要有别的文字:
+EN: 英文原句 — 作者或出处(真实姓名/作品名,如果是电影台词就写"角色名,《片名》")
+ZH: 中文翻译。—— 作者或出处的中文译名`;
+
+  const message = await createMessageWithRetry({
+    model: currentModel(),
+    max_tokens: 300,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const raw = (message.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  const enMatch = raw.match(/^EN:\s*(.+)$/m);
+  const zhMatch = raw.match(/^ZH:\s*(.+)$/m);
+  const parsed = {
+    en: enMatch ? enMatch[1].trim() : '',
+    zh: zhMatch ? zhMatch[1].trim() : '',
+  };
+  if (!parsed.en || !parsed.zh) throw new Error('模型没有返回有效的情话内容');
+  return parsed;
+}
+
 // WMO weather codes (used by Open-Meteo) collapsed into one representative
 // emoji each — good enough for a small home-page/diary decoration, not
 // meant to be a precise forecast UI.
@@ -1346,6 +1396,56 @@ app.post('/api/daily-song/reroll', async (req, res) => {
   } catch (err) {
     console.error('POST /api/daily-song/reroll error:', err);
     res.status(500).json({ error: err.message || '换歌失败' });
+  }
+});
+
+app.get('/api/daily-quote', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const dateStr = shanghaiDateStr();
+  const { data: existing, error: fetchErr } = await supabase.from('daily_quotes').select('*').eq('quote_date', dateStr).maybeSingle();
+  if (fetchErr) { res.status(500).json({ error: fetchErr.message }); return; }
+  if (existing) { res.json(existing); return; }
+
+  try {
+    const quote = await pickDailyQuote([]);
+    const { data: inserted, error } = await supabase
+      .from('daily_quotes')
+      .insert({ quote_date: dateStr, en: quote.en, zh: quote.zh })
+      .select()
+      .single();
+    if (error) {
+      if (error.code === '23505') {
+        const { data: existing2 } = await supabase.from('daily_quotes').select('*').eq('quote_date', dateStr).maybeSingle();
+        if (existing2) { res.json(existing2); return; }
+      }
+      res.status(500).json({ error: error.message });
+      return;
+    }
+    res.json(inserted);
+  } catch (err) {
+    console.error('GET /api/daily-quote generation error:', err);
+    res.status(500).json({ error: err.message || '生成情话失败' });
+  }
+});
+
+app.post('/api/daily-quote/reroll', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const dateStr = shanghaiDateStr();
+  const { data: existing, error: fetchErr } = await supabase.from('daily_quotes').select('*').eq('quote_date', dateStr).maybeSingle();
+  if (fetchErr) { res.status(500).json({ error: fetchErr.message }); return; }
+
+  const rejected = (existing && existing.rejected) || [];
+  if (existing) rejected.push(existing.en);
+
+  try {
+    const quote = await pickDailyQuote(rejected);
+    const update = { quote_date: dateStr, en: quote.en, zh: quote.zh, rejected };
+    const { data, error } = await supabase.from('daily_quotes').upsert(update, { onConflict: 'quote_date' }).select().single();
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    res.json(data);
+  } catch (err) {
+    console.error('POST /api/daily-quote/reroll error:', err);
+    res.status(500).json({ error: err.message || '换一句失败' });
   }
 });
 

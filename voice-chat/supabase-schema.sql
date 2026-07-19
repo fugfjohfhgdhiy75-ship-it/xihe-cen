@@ -147,8 +147,23 @@ alter table daily_songs add column if not exists netease_id text;
 -- 服务器从网易云拿到的真实歌词摘录(两行),不再让模型凭记忆背歌词
 alter table daily_songs add column if not exists lyric text;
 
+-- One row per calendar day: the Home page love-quote card. Replaces the
+-- old fixed local list with a fresh one each day (still a real,
+-- correctly-attributed quote — see pickDailyQuote in server.js) so it
+-- doesn't repeat nearly as fast; `rejected` stores quotes already skipped
+-- today via the card's refresh button, same pattern as daily_songs.
+create table if not exists daily_quotes (
+  id bigint generated always as identity primary key,
+  quote_date date not null unique,
+  en text not null,
+  zh text not null,
+  rejected jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
 create index if not exists diary_entries_date_idx on diary_entries (entry_date desc);
 create index if not exists diary_entries_created_idx on diary_entries (created_at desc);
 create index if not exists daily_songs_date_idx on daily_songs (song_date desc);
+create index if not exists daily_quotes_date_idx on daily_quotes (quote_date desc);
