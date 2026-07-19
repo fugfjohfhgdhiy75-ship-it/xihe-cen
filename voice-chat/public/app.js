@@ -81,6 +81,21 @@ document.addEventListener('focusout', (e) => {
   if (appEl) appEl.classList.remove('kb-open');
   [0, 50, 150, 300, 500].forEach((ms) => setTimeout(syncAppHeight, ms));
 });
+// Every OTHER input in the app (diary reply, milestone input, More-page
+// fields, color picker hex field...) doesn't hide the tabbar — that part
+// of the scoping above is intentional — but still shrinks .app via
+// syncAppHeight when its keyboard opens, which leaves .tabbar's
+// safe-area-inset-bottom margin as a dead gap between the tabbar and the
+// keyboard (see the .kb-open-any rule in style.css). Toggle that
+// separately, app-wide, without touching tabbar visibility.
+document.addEventListener('focusin', (e) => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  if (appEl) appEl.classList.add('kb-open-any');
+});
+document.addEventListener('focusout', (e) => {
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  if (appEl) appEl.classList.remove('kb-open-any');
+});
 
 const sessionsBtn = document.getElementById('sessionsBtn');
 const sessionsPanel = document.getElementById('sessionsPanel');

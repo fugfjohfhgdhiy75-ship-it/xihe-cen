@@ -252,6 +252,19 @@ body.chat-bg-on .chime-deco {
   display: none;
 }
 
+/* .tabbar's own margin-bottom reserves the home-indicator safe area, which
+   is correct when nothing else is covering it — but once the keyboard is
+   up, .app's height (synced to visualViewport.height in app.js) already
+   ends right where the keyboard starts, so that same safe-area margin
+   becomes a dead empty strip sandwiched between the tabbar and the
+   keyboard. .kb-open (above) only fires for the chat composer and hides
+   the tabbar entirely, sidestepping this; every *other* input (diary
+   reply, milestone input, More-page fields, the color picker) leaves the
+   tabbar showing, so it needs this margin collapsed instead. */
+.app.kb-open-any .tabbar {
+  margin-bottom: 6px;
+}
+
 .tab-btn {
   flex: 1;
   display: flex;
