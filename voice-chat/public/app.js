@@ -2394,6 +2394,12 @@ async function sendMessage(rawText) {
   const imageFiles = selectedImageFiles;
   if ((!text && !imageFiles.length) || !currentSessionId) return;
 
+  // Snapshot how many bubbles exist before this turn's optimistic ones go
+  // in, so a later reload can tell "this exact turn actually saved" apart
+  // from "the session just already ended on an assistant reply from
+  // before" — see the recovered check in tryAutoRecover below.
+  const bubbleCountBeforeSend = transcriptEl.children.length;
+
   const localImageUrls = imageFiles.map((f) => URL.createObjectURL(f));
   const replyTo = pendingReplyTo;
   const userBubble = appendBubble('user', text, localImageUrls, null, null, replyTo);
@@ -2475,7 +2481,7 @@ async function sendMessage(rawText) {
     // before falling back to asking the user to do it themselves.
     assistantBubble.el.remove();
     statusText.textContent = '连接断了,自动重连中...';
-    const recovered = await tryAutoRecover(currentSessionId, [1500, 3000]);
+    const recovered = await tryAutoRecover(currentSessionId, [1500, 3000], bubbleCountBeforeSend);
     if (!recovered) {
       statusText.textContent = '';
       const retryBubble = appendBubble('assistant', `(出错了: ${err.message} —— 点这条消息重新加载,看看是不是其实发出去了)`);
@@ -2492,7 +2498,16 @@ async function sendMessage(rawText) {
 // server-side despite the client-side connection dropping). Waits `delays`
 // between attempts, longest last, since the server may still be retrying
 // internally when the first check happens.
-async function tryAutoRecover(sessionId, delays) {
+//
+// `countBeforeSend` guards against a false positive: if the request never
+// even reached the point of saving her message (e.g. the upload itself got
+// aborted before the server ever ran), selectSession's reload just shows
+// the *previous* turn again, which usually already ended on an assistant
+// reply — "last bubble is assistant" would then be true by coincidence,
+// reporting a fake recovery and silently swallowing her message with no
+// error shown at all. Requiring strictly more bubbles than existed before
+// this send confirms something from *this* turn actually landed.
+async function tryAutoRecover(sessionId, delays, countBeforeSend) {
   for (const delay of delays) {
     await new Promise((r) => setTimeout(r, delay));
     try {
@@ -2501,7 +2516,8 @@ async function tryAutoRecover(sessionId, delays) {
       continue;
     }
     const last = transcriptEl.lastElementChild;
-    if (last && last.classList.contains('assistant')) return true;
+    const grew = countBeforeSend === undefined || transcriptEl.children.length > countBeforeSend;
+    if (grew && last && last.classList.contains('assistant')) return true;
   }
   return false;
 }
