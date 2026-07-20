@@ -127,11 +127,20 @@ async function loadApiOverrides() {
 // silently succeeded-but-never-returned on attempt 1 then succeeds again on
 // a retry means two billed calls for one turn — but leaving the user with
 // nothing after being charged once is worse than that.
+// A slow model/relay combo (e.g. a third-party "relay" key routed to Opus)
+// generating a long reply can just hang with nothing coming back — no
+// exception, no log, she just sees nothing and has no idea why. Without an
+// explicit timeout the SDK's own default can be long enough that a stuck
+// request never surfaces as an error at all. 4 minutes is generous enough
+// for a genuine long-form reply to finish, but still turns a silent hang
+// into an actual logged/reportable failure instead of nothing.
+const ANTHROPIC_REQUEST_TIMEOUT_MS = 4 * 60 * 1000;
+
 async function createMessageWithRetry(params, retries = 2) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await anthropic.messages.create(params);
+      return await anthropic.messages.create(params, { timeout: ANTHROPIC_REQUEST_TIMEOUT_MS });
     } catch (err) {
       lastErr = err;
       console.error(`anthropic.messages.create attempt ${attempt + 1}/${retries + 1} failed:`, err.message);
