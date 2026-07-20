@@ -1591,10 +1591,10 @@ async function loadSpecialRequirements() {
 }
 loadSpecialRequirements();
 
-async function postSpecialRequirement(note, file) {
+async function postSpecialRequirement(note, file, filename) {
   const form = new FormData();
   form.append('note', note);
-  if (file) form.append('file', file);
+  if (file) form.append('file', file, filename || file.name || 'file');
   const res = await fetch('/api/special-requirements', { method: 'POST', body: form });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || '保存失败');
@@ -1613,16 +1613,20 @@ specialReqAddBtnEl.addEventListener('click', async () => {
       specialReqStatusEl.textContent = '已添加';
     } else {
       // 一次选了好几个文件/图片:每个文件单独生成一条(都带上同一段说明
-      // 文字),一个一个处理而不是同时并发——避免好几张大图同时解码把
-      // 内存冲高(跟表情包/聊天图片那几处的顾虑一样)。单个文件失败不影响
-      // 其他文件继续处理。
+      // 文字),一个一个处理而不是同时并发。全尺寸 iPhone 照片不经压缩地
+      // 连着传几张,之前已经在聊天发图那里把 Render 免费实例的内存冲崩过
+      // 一次——这里复用同一个 compressImageForUpload,先在浏览器这边把
+      // 图片缩小了再传,而不是让服务器一遍遍处理好几张原图。单个文件失败
+      // 不影响其他文件继续处理。
       let okCount = 0;
       let failCount = 0;
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        specialReqStatusEl.textContent = `正在识别 ${file.name}(${i + 1}/${files.length})...`;
+        specialReqStatusEl.textContent = `正在处理 ${file.name}(${i + 1}/${files.length})...`;
         try {
-          await postSpecialRequirement(note, file);
+          const isImage = file.type && file.type.startsWith('image/');
+          const toUpload = isImage ? await compressImageForUpload(file) : file;
+          await postSpecialRequirement(note, toUpload, file.name);
           okCount++;
         } catch (err) {
           failCount++;

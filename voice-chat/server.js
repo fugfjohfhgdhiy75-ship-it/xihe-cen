@@ -2541,15 +2541,17 @@ app.get('/api/config', (req, res) => {
 // 复用跟主聊天一样、已经确认没问题的视觉通道。
 const REQUIREMENT_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif']);
 
+// Takes an already-shrunk buffer — shrinking is the caller's job (see
+// extractFileContent below) so a big image only ever gets decoded/resized
+// once, not once here and again for the storage upload.
 async function describeImageForRequirements(buffer, mimetype) {
-  const shrunk = await shrinkImageIfNeeded(buffer, mimetype);
   const claudeMessage = await createMessageWithRetry({
     model: currentModel(),
     max_tokens: 500,
     messages: [{
       role: 'user',
       content: [
-        { type: 'image', source: { type: 'base64', media_type: shrunk.mimetype, data: shrunk.buffer.toString('base64') } },
+        { type: 'image', source: { type: 'base64', media_type: mimetype, data: buffer.toString('base64') } },
         { type: 'text', text: '详细描述这张图片的内容(画面、人物长相穿着、风格、能看到的文字信息等一切细节),给出一段清晰的中文描述。直接输出描述本身,不要加任何前缀、客套话或"这张图片"这类开场白。' },
       ],
     }],
@@ -2560,14 +2562,19 @@ async function describeImageForRequirements(buffer, mimetype) {
 // Shared by /api/extract-text (dumps straight into the System Prompt
 // textarea) and /api/special-requirements below (one itemized entry) —
 // both need "turn whatever file she picked into text," just wired into
-// different destinations.
+// different destinations. For images, shrinks once and hands the same
+// shrunk buffer back so a caller that also wants to store the picture
+// (special-requirements does, for the thumbnail) doesn't redundantly
+// decode/resize it a second time — with several full-res photos picked at
+// once, that doubling was real memory pressure on a free-tier instance.
 async function extractFileContent(file) {
   const name = file.originalname || '';
   const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
   if (REQUIREMENT_IMAGE_EXTS.has(ext) || (file.mimetype || '').startsWith('image/')) {
-    const text = await describeImageForRequirements(file.buffer, file.mimetype);
+    const shrunk = await shrinkImageIfNeeded(file.buffer, file.mimetype);
+    const text = await describeImageForRequirements(shrunk.buffer, shrunk.mimetype);
     if (!text) throw new Error('图片识别失败,没有返回描述');
-    return { text, isImage: true };
+    return { text, isImage: true, shrunkBuffer: shrunk.buffer, shrunkMimetype: shrunk.mimetype };
   }
   if (ext === '.pdf') {
     const parser = new PDFParse({ data: file.buffer });
@@ -2620,16 +2627,17 @@ app.post('/api/special-requirements', upload.single('file'), async (req, res) =>
 
     if (file) {
       fileName = file.originalname || '';
-      const { text, isImage } = await extractFileContent(file);
+      const { text, isImage, shrunkBuffer, shrunkMimetype } = await extractFileContent(file);
       extractedText = text;
       // Only images get stored/kept around as a viewable file — a doc's
       // extracted text is the whole point, the original bytes aren't
-      // needed again once read.
+      // needed again once read. Reuses the buffer extractFileContent
+      // already shrunk instead of decoding/resizing the image a second
+      // time here.
       if (isImage) {
-        const shrunk = await shrinkImageIfNeeded(file.buffer, file.mimetype);
-        const fileExt = (shrunk.mimetype || 'image/jpeg').split('/')[1] || 'jpg';
+        const fileExt = (shrunkMimetype || 'image/jpeg').split('/')[1] || 'jpg';
         const path = `special-requirements/${Date.now()}.${fileExt}`;
-        const { error: upErr } = await supabase.storage.from(IMAGE_BUCKET).upload(path, shrunk.buffer, { contentType: shrunk.mimetype });
+        const { error: upErr } = await supabase.storage.from(IMAGE_BUCKET).upload(path, shrunkBuffer, { contentType: shrunkMimetype });
         if (upErr) throw new Error('图片保存失败: ' + upErr.message);
         fileUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
       }
