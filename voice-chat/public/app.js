@@ -361,6 +361,22 @@ const appLockErrorEl = document.getElementById('appLockError');
 let appLockEnabled = false;
 let appLockWasHidden = false;
 
+// She only wants the PIN re-asked after a real gap, not every single time
+// she flips back to another app for a few seconds — a 30-minute grace
+// since the last successful unlock. Stored in localStorage (not just a JS
+// variable) because backgrounding a PWA on iOS for a while often makes it
+// reload from scratch when reopened, which would otherwise reset any
+// in-memory "just unlocked" state and re-prompt anyway.
+const APP_LOCK_GRACE_MS = 30 * 60 * 1000;
+const APP_LOCK_STORAGE_KEY = 'appLockLastUnlockedAt';
+function appLockRecentlyUnlocked() {
+  const t = Number(localStorage.getItem(APP_LOCK_STORAGE_KEY) || 0);
+  return Date.now() - t < APP_LOCK_GRACE_MS;
+}
+function markAppLockUnlocked() {
+  try { localStorage.setItem(APP_LOCK_STORAGE_KEY, String(Date.now())); } catch {}
+}
+
 function showAppLock() {
   appLockScreenEl.classList.remove('hidden');
   appLockErrorEl.classList.add('hidden');
@@ -379,6 +395,7 @@ async function submitAppLockPin() {
     });
     const data = await res.json();
     if (data.ok) {
+      markAppLockUnlocked();
       appLockScreenEl.classList.add('hidden');
       return;
     }
@@ -395,6 +412,10 @@ appLockInputEl.addEventListener('input', () => {
   if (appLockInputEl.value.length === 6) submitAppLockPin();
 });
 
+function maybeShowAppLock() {
+  if (appLockEnabled && !appLockRecentlyUnlocked()) showAppLock();
+}
+
 async function checkAppLock() {
   try {
     const res = await fetch('/api/app-lock/status');
@@ -403,7 +424,7 @@ async function checkAppLock() {
   } catch {
     appLockEnabled = false;
   }
-  if (appLockEnabled) showAppLock();
+  maybeShowAppLock();
 }
 checkAppLock();
 
@@ -415,7 +436,7 @@ document.addEventListener('visibilitychange', () => {
     appLockWasHidden = true;
   } else if (appLockWasHidden) {
     appLockWasHidden = false;
-    if (appLockEnabled) showAppLock();
+    maybeShowAppLock();
   }
 });
 
