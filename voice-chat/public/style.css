@@ -738,6 +738,36 @@ h1 {
   resize: vertical;
 }
 
+.sticker-new-set-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sticker-upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sticker-upload-tag {
+  flex: 1 1 100px;
+  min-width: 90px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.sticker-upload-file {
+  flex: 1 1 140px;
+  font-size: 12px;
+}
+
 /* 聊天字体与颜色 — HSV color picker (对方/我的文字颜色) */
 .style-color-item {
   display: flex;

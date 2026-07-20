@@ -1747,6 +1747,49 @@ app.delete('/api/stickers/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// 建一个空的套(不跑 AI 生成)——她有时候觉得生成的跟想的不一样,想直接传
+// 自己准备好的图,这个套就是给那些图一个"家",跟 /generate 下面那个批量
+// AI 生成的套是同一张表,用法完全一样,只是这里不自动画任何东西。
+app.post('/api/sticker-sets', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const name = ((req.body && req.body.name) || '').trim();
+  const stylePrompt = ((req.body && req.body.stylePrompt) || '').trim();
+  if (!name) { res.status(400).json({ error: '请给这套表情包起个名字' }); return; }
+  const { data, error } = await supabase.from('sticker_sets').insert({ name, style_prompt: stylePrompt || null }).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
+});
+
+// 手动传一张自己准备好的图进某一套(不管这套原本是 AI 生成的还是手动建的
+// 空套都行)——配一个标签,同一套里同标签再传一次会直接替换掉旧的那张
+// (跟 AI 生成同一个 tag 冲突时的行为一致,见下面 (set_id, tag) 的唯一约束)。
+app.post('/api/sticker-sets/:id/upload', upload.single('photo'), async (req, res) => {
+  if (!requireSupabase(res)) return;
+  if (!req.file) { res.status(400).json({ error: '没收到图片' }); return; }
+  const setId = Number(req.params.id);
+  const tag = ((req.body && req.body.tag) || '').trim();
+  if (!tag) { res.status(400).json({ error: '请填一个标签' }); return; }
+  try {
+    const shrunk = await shrinkImageIfNeeded(req.file.buffer, req.file.mimetype);
+    const ext = (shrunk.mimetype || 'image/jpeg').split('/')[1] || 'jpg';
+    const path = `stickers/upload-${Date.now()}.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from(IMAGE_BUCKET)
+      .upload(path, shrunk.buffer, { contentType: shrunk.mimetype });
+    if (uploadErr) { res.status(500).json({ error: '图片保存失败: ' + uploadErr.message }); return; }
+    const image_url = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+    const { data, error } = await supabase
+      .from('stickers')
+      .upsert({ tag, image_url, set_id: setId }, { onConflict: 'set_id,tag' })
+      .select()
+      .single();
+    if (error) { res.status(500).json({ error: error.message }); return; }
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message || '上传失败' });
+  }
+});
+
 app.delete('/api/sticker-sets/:id', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { error } = await supabase.from('sticker_sets').delete().eq('id', req.params.id);

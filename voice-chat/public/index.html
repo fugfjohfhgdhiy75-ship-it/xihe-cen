@@ -374,9 +374,24 @@
             <div class="sticker-new-set">
               <input id="stickerSetName" type="text" maxlength="20" placeholder="给这套起个名字,比如"卡通猫咪"" />
               <textarea id="stickerSetStyle" rows="2" placeholder="描述想要的风格,比如"极简卡通猫咪吉祥物,扁平插画风"(留空则用默认猫咪风格)"></textarea>
-              <button id="stickerSetCreateBtn" class="mini-btn">生成新的一套</button>
+              <div class="sticker-new-set-btns">
+                <button id="stickerSetCreateBtn" class="mini-btn">AI 生成新的一套</button>
+                <button id="stickerSetCreateEmptyBtn" class="mini-btn milestone-no">只建空的一套(自己传图)</button>
+              </div>
             </div>
             <div id="stickerStatus" class="doc-status"></div>
+            <datalist id="stickerTagOptions">
+              <option value="害羞"></option>
+              <option value="笑哭"></option>
+              <option value="生气"></option>
+              <option value="比心"></option>
+              <option value="委屈"></option>
+              <option value="惊讶"></option>
+              <option value="抱抱"></option>
+              <option value="晚安"></option>
+              <option value="早安"></option>
+              <option value="撒娇"></option>
+            </datalist>
           </div>
 
           <div class="card more-card">

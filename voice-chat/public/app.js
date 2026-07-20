@@ -681,6 +681,7 @@ const stickerSetsContainerEl = document.getElementById('stickerSetsContainer');
 const stickerSetNameEl = document.getElementById('stickerSetName');
 const stickerSetStyleEl = document.getElementById('stickerSetStyle');
 const stickerSetCreateBtnEl = document.getElementById('stickerSetCreateBtn');
+const stickerSetCreateEmptyBtnEl = document.getElementById('stickerSetCreateEmptyBtn');
 const stickerStatusEl = document.getElementById('stickerStatus');
 
 function renderStickerItem(sticker) {
@@ -864,8 +865,59 @@ function renderStickerSet(set) {
   });
   header.appendChild(delSetBtn);
 
+  // 手动传自己准备好的图——生成的有时候不满意,这里可以直接补一张自己的
+  // 图进这一套,标签跟已有的哪个重名就直接换掉那张,不重名就新增一张。
+  const uploadRow = document.createElement('div');
+  uploadRow.className = 'sticker-upload-row';
+
+  const tagInput = document.createElement('input');
+  tagInput.type = 'text';
+  tagInput.placeholder = '标签,比如"笑哭"';
+  tagInput.setAttribute('list', 'stickerTagOptions');
+  tagInput.className = 'sticker-upload-tag';
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*';
+  fileInput.className = 'sticker-upload-file';
+
+  const uploadBtn = document.createElement('button');
+  uploadBtn.type = 'button';
+  uploadBtn.className = 'mini-btn';
+  uploadBtn.textContent = '上传这张';
+  uploadBtn.addEventListener('click', async () => {
+    const tag = tagInput.value.trim();
+    const file = fileInput.files[0];
+    if (!tag) { stickerStatusEl.textContent = '先填个标签'; return; }
+    if (!file) { stickerStatusEl.textContent = '先选一张图'; return; }
+    uploadBtn.disabled = true;
+    stickerStatusEl.textContent = '上传中...';
+    try {
+      const formData = new FormData();
+      formData.append('photo', file);
+      formData.append('tag', tag);
+      const res = await fetch(`/api/sticker-sets/${set.id}/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '上传失败');
+      const existing = grid.querySelector(`.sticker-item[data-tag="${CSS.escape(tag)}"]`);
+      if (existing) existing.remove();
+      grid.appendChild(renderStickerItem(data));
+      tagInput.value = '';
+      fileInput.value = '';
+      stickerStatusEl.textContent = `"${tag}"上传好了`;
+    } catch (err) {
+      stickerStatusEl.textContent = '上传失败: ' + err.message;
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  });
+  uploadRow.appendChild(tagInput);
+  uploadRow.appendChild(fileInput);
+  uploadRow.appendChild(uploadBtn);
+
   section.appendChild(header);
   section.appendChild(grid);
+  section.appendChild(uploadRow);
   return section;
 }
 
@@ -906,6 +958,31 @@ stickerSetCreateBtnEl.addEventListener('click', async () => {
     stickerStatusEl.textContent = '生成失败: ' + err.message;
   } finally {
     stickerSetCreateBtnEl.disabled = false;
+  }
+});
+
+// 不用 AI 画,只是建一个空的收藏、自己往里面传图——风格描述框在这条路径下
+// 用不上,直接忽略。
+stickerSetCreateEmptyBtnEl.addEventListener('click', async () => {
+  const name = stickerSetNameEl.value.trim();
+  if (!name) { stickerStatusEl.textContent = '先给这套起个名字'; return; }
+  stickerSetCreateEmptyBtnEl.disabled = true;
+  try {
+    const res = await fetch('/api/sticker-sets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '创建失败');
+    stickerSetNameEl.value = '';
+    stickerSetStyleEl.value = '';
+    loadStickerSets();
+    stickerStatusEl.textContent = `"${name}"建好了,可以往里面传图了`;
+  } catch (err) {
+    stickerStatusEl.textContent = '创建失败: ' + err.message;
+  } finally {
+    stickerSetCreateEmptyBtnEl.disabled = false;
   }
 });
 
