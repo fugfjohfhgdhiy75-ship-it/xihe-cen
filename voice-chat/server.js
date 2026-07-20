@@ -2023,8 +2023,11 @@ function tokensForChars(chars) {
   // ~1.2 CJK characters per Claude token is a deliberately generous (i.e.
   // over-)estimate, plus a flat buffer for wrap-up sentences/punctuation,
   // floored/ceilinged so a typo'd huge number or a vague ask doesn't
-  // request something absurd or pointlessly small.
-  return Math.min(8000, Math.max(2500, Math.ceil(chars / 1.2) + 300));
+  // request something absurd or pointlessly small. Ceiling raised to cover
+  // a genuine 10,000-character ask in full — the old 8000-token cap came
+  // out to only ~9600 characters before the wrap-up buffer even ate into
+  // that, so "写一万字" was getting cut short of its own target.
+  return Math.min(12000, Math.max(2500, Math.ceil(chars / 1.2) + 300));
 }
 
 function detectLongFormMaxTokens(text) {
