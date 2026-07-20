@@ -136,7 +136,11 @@ async function loadApiOverrides() {
 // into an actual logged/reportable failure instead of nothing.
 const ANTHROPIC_REQUEST_TIMEOUT_MS = 4 * 60 * 1000;
 
-async function createMessageWithRetry(params, retries = 2) {
+// She hit a stall through a slow third-party relay/model that cleared up
+// on her own manual retry — bumped from 2 to 4 so that kind of transient
+// stall has a better chance of quietly self-healing without her having to
+// notice the failure and hit "regenerate" herself.
+async function createMessageWithRetry(params, retries = 4) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
