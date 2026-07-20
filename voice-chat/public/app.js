@@ -1521,6 +1521,100 @@ docUpload.addEventListener('change', async () => {
   docUpload.value = '';
 });
 
+// ---- 特殊要求 (separate from the System Prompt doc-import above — an
+// itemized list; each entry is her own note plus, optionally, an
+// attached image/file read into text. No attachment required — a bare
+// note is a complete entry on its own.) ----
+
+const specialReqNoteEl = document.getElementById('specialReqNote');
+const specialReqFileEl = document.getElementById('specialReqFile');
+const specialReqAddBtnEl = document.getElementById('specialReqAddBtn');
+const specialReqStatusEl = document.getElementById('specialReqStatus');
+const specialReqListEl = document.getElementById('specialReqList');
+
+function renderSpecialRequirement(item) {
+  const div = document.createElement('div');
+  div.className = 'special-req-item';
+
+  if (item.file_url) {
+    const img = document.createElement('img');
+    img.className = 'special-req-thumb';
+    img.src = item.file_url;
+    img.alt = item.file_name || '';
+    div.appendChild(img);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'special-req-body';
+  if (item.note) {
+    const noteEl = document.createElement('div');
+    noteEl.className = 'special-req-note';
+    noteEl.textContent = item.note;
+    body.appendChild(noteEl);
+  }
+  if (item.file_name) {
+    const fileEl = document.createElement('div');
+    fileEl.className = 'special-req-filename';
+    fileEl.textContent = '📎 ' + item.file_name;
+    body.appendChild(fileEl);
+  }
+  div.appendChild(body);
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'special-req-del';
+  del.textContent = '✕';
+  del.addEventListener('click', async () => {
+    if (!confirm('删掉这条特殊要求?')) return;
+    try {
+      await fetch('/api/special-requirements/' + item.id, { method: 'DELETE' });
+      div.remove();
+    } catch (err) {
+      specialReqStatusEl.textContent = '删除失败: ' + err.message;
+    }
+  });
+  div.appendChild(del);
+
+  return div;
+}
+
+async function loadSpecialRequirements() {
+  try {
+    const res = await fetch('/api/special-requirements');
+    const items = await res.json();
+    if (!res.ok) throw new Error(items.error || '加载失败');
+    specialReqListEl.innerHTML = '';
+    items.forEach((item) => specialReqListEl.appendChild(renderSpecialRequirement(item)));
+  } catch (err) {
+    specialReqStatusEl.textContent = '加载失败: ' + err.message;
+  }
+}
+loadSpecialRequirements();
+
+specialReqAddBtnEl.addEventListener('click', async () => {
+  const note = specialReqNoteEl.value.trim();
+  const file = specialReqFileEl.files[0];
+  if (!note && !file) { specialReqStatusEl.textContent = '写点说明,或者传个文件/图片'; return; }
+  specialReqAddBtnEl.disabled = true;
+  specialReqStatusEl.textContent = file ? '识别中...' : '保存中...';
+  try {
+    const form = new FormData();
+    form.append('note', note);
+    if (file) form.append('file', file);
+    const res = await fetch('/api/special-requirements', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '保存失败');
+    specialReqListEl.appendChild(renderSpecialRequirement(data));
+    specialReqNoteEl.value = '';
+    specialReqFileEl.value = '';
+    specialReqStatusEl.textContent = '已添加';
+  } catch (err) {
+    specialReqStatusEl.textContent = '失败: ' + err.message;
+  } finally {
+    specialReqAddBtnEl.disabled = false;
+  }
+});
+
 // ---- Sessions ----
 
 async function loadSessions() {

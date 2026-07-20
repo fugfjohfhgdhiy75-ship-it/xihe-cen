@@ -768,6 +768,102 @@ h1 {
   font-size: 12px;
 }
 
+/* 特殊要求 — separate from the System Prompt doc-import above: a list of
+   individual notes, each optionally with an attached image/file. */
+.special-req-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.special-req-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+#specialReqNote {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.5);
+  resize: vertical;
+  margin-bottom: 8px;
+}
+
+#specialReqFile {
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.special-req-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.special-req-item {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  padding: 10px 30px 10px 10px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.special-req-thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.special-req-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.special-req-note {
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.special-req-filename {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.special-req-del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(36, 52, 76, 0.65);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* 聊天字体与颜色 — HSV color picker (对方/我的文字颜色) */
 .style-color-item {
   display: flex;

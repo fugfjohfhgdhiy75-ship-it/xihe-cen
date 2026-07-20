@@ -234,10 +234,35 @@ function requireSupabase(res) {
   return true;
 }
 
+// 特殊要求 — her own itemized list, separate from the raw System Prompt
+// textarea (see special_requirements in supabase-schema.sql): each entry
+// is her note plus, optionally, whatever got read out of an attached
+// image/file. Folded into getSystemPrompt() itself so every place that
+// already calls it (main chat, calls, diary, spontaneous messages) picks
+// these up automatically without each one needing its own extra fetch.
+async function getSpecialRequirementsBlock() {
+  if (!SUPABASE_READY) return '';
+  const { data } = await supabase.from('special_requirements').select('note, extracted_text').order('created_at', { ascending: true });
+  if (!data || !data.length) return '';
+  return data
+    .map((r, i) => {
+      const parts = [];
+      if (r.note) parts.push(r.note);
+      if (r.extracted_text) parts.push(`(附件内容:${r.extracted_text})`);
+      return `${i + 1}. ${parts.join(' ')}`;
+    })
+    .join('\n');
+}
+
 async function getSystemPrompt() {
   if (!SUPABASE_READY) return '';
-  const { data } = await supabase.from('settings').select('system_prompt').eq('id', 1).maybeSingle();
-  return (data && data.system_prompt) || '';
+  const [{ data }, requirementsBlock] = await Promise.all([
+    supabase.from('settings').select('system_prompt').eq('id', 1).maybeSingle(),
+    getSpecialRequirementsBlock(),
+  ]);
+  const base = (data && data.system_prompt) || '';
+  if (!requirementsBlock) return base;
+  return [base, `她列出的一些特殊要求(每条都可能带了"什么时候用"的说明,照着执行):\n${requirementsBlock}`].filter(Boolean).join('\n\n');
 }
 
 // Summarize the oldest messages of a session into `memories` once the
@@ -2532,36 +2557,102 @@ async function describeImageForRequirements(buffer, mimetype) {
   return (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
 }
 
+// Shared by /api/extract-text (dumps straight into the System Prompt
+// textarea) and /api/special-requirements below (one itemized entry) —
+// both need "turn whatever file she picked into text," just wired into
+// different destinations.
+async function extractFileContent(file) {
+  const name = file.originalname || '';
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  if (REQUIREMENT_IMAGE_EXTS.has(ext) || (file.mimetype || '').startsWith('image/')) {
+    const text = await describeImageForRequirements(file.buffer, file.mimetype);
+    if (!text) throw new Error('图片识别失败,没有返回描述');
+    return { text, isImage: true };
+  }
+  if (ext === '.pdf') {
+    const parser = new PDFParse({ data: file.buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return { text: (result.text || '').trim(), isImage: false };
+  }
+  if (ext === '.md' || ext === '.txt') {
+    return { text: file.buffer.toString('utf-8').trim(), isImage: false };
+  }
+  throw new Error('只支持 .md / .txt / .pdf / 图片');
+}
+
 app.post('/api/extract-text', upload.single('file'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: '没收到文件' });
     return;
   }
-
-  const name = req.file.originalname || '';
-  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
-
   try {
-    let text;
-    if (ext === '.pdf') {
-      const parser = new PDFParse({ data: req.file.buffer });
-      const result = await parser.getText();
-      await parser.destroy();
-      text = result.text;
-    } else if (ext === '.md' || ext === '.txt') {
-      text = req.file.buffer.toString('utf-8');
-    } else if (REQUIREMENT_IMAGE_EXTS.has(ext) || (req.file.mimetype || '').startsWith('image/')) {
-      text = await describeImageForRequirements(req.file.buffer, req.file.mimetype);
-      if (!text) { res.status(500).json({ error: '图片识别失败,没有返回描述' }); return; }
-    } else {
-      res.status(400).json({ error: '只支持 .md / .txt / .pdf / 图片' });
-      return;
-    }
-    res.json({ ok: true, filename: name, text: (text || '').trim() });
+    const { text } = await extractFileContent(req.file);
+    res.json({ ok: true, filename: req.file.originalname || '', text });
   } catch (err) {
     console.error('/api/extract-text error:', err);
     res.status(500).json({ error: '解析失败: ' + err.message });
   }
+});
+
+// 特殊要求 — separate from the System Prompt doc-import above: an
+// itemized list (see special_requirements in supabase-schema.sql), each
+// entry her own note plus, optionally, an attached image/file read into
+// text. Not required to attach anything — a bare note is a valid entry
+// on its own.
+app.get('/api/special-requirements', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { data, error } = await supabase.from('special_requirements').select('*').order('created_at', { ascending: true });
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data || []);
+});
+
+app.post('/api/special-requirements', upload.single('file'), async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const note = ((req.body && req.body.note) || '').trim();
+  const file = req.file;
+  if (!note && !file) { res.status(400).json({ error: '写点说明,或者传个文件/图片' }); return; }
+
+  try {
+    let fileUrl = null;
+    let fileName = null;
+    let extractedText = null;
+
+    if (file) {
+      fileName = file.originalname || '';
+      const { text, isImage } = await extractFileContent(file);
+      extractedText = text;
+      // Only images get stored/kept around as a viewable file — a doc's
+      // extracted text is the whole point, the original bytes aren't
+      // needed again once read.
+      if (isImage) {
+        const shrunk = await shrinkImageIfNeeded(file.buffer, file.mimetype);
+        const fileExt = (shrunk.mimetype || 'image/jpeg').split('/')[1] || 'jpg';
+        const path = `special-requirements/${Date.now()}.${fileExt}`;
+        const { error: upErr } = await supabase.storage.from(IMAGE_BUCKET).upload(path, shrunk.buffer, { contentType: shrunk.mimetype });
+        if (upErr) throw new Error('图片保存失败: ' + upErr.message);
+        fileUrl = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('special_requirements')
+      .insert({ note: note || null, file_url: fileUrl, file_name: fileName, extracted_text: extractedText })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    res.json(data);
+  } catch (err) {
+    console.error('/api/special-requirements error:', err);
+    res.status(500).json({ error: err.message || '保存失败' });
+  }
+});
+
+app.delete('/api/special-requirements/:id', async (req, res) => {
+  if (!requireSupabase(res)) return;
+  const { error } = await supabase.from('special_requirements').delete().eq('id', req.params.id);
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ ok: true });
 });
 
 // Stage directions like "(笑着)" carry real performance info, but only

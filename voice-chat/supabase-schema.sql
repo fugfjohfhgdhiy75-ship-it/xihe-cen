@@ -232,6 +232,21 @@ end $$;
 -- 能被他自己选,不该被锁定在某一套里——所以这一列用不上了,删掉。
 alter table sticker_sets drop column if exists is_active;
 
+-- 特殊要求:跟 System Prompt 那个大文本框是分开的一张单独列表——每一条
+-- 自己写清楚"这条是干什么用的/什么时候参考"(note),可以顺便传一张图或
+-- 一个文件(file_url 只有图片才会存,给列表里显示缩略图用;文档不存原文件,
+-- 只存提取出来的文字),也可以什么都不传、只写字。extracted_text 是图片
+-- 识别出来的描述,或者文档提取出来的原文——这两个字段跟 note 拼在一起,
+-- 长期塞进每次对话的 system prompt 里(见 server.js 的 getSystemPrompt)。
+create table if not exists special_requirements (
+  id bigint generated always as identity primary key,
+  note text,
+  file_url text,
+  file_name text,
+  extracted_text text,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
 create index if not exists diary_entries_date_idx on diary_entries (entry_date desc);
