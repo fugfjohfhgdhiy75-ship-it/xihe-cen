@@ -2085,6 +2085,35 @@ function detectLongFormMaxTokens(text) {
   return null;
 }
 
+// Every round of "stop doing X" instructions above only ever covers the
+// specific tic she already noticed — a new one always eventually shows up,
+// because a generic "vary yourself" reminder competing against a long,
+// detailed persona system prompt tends to lose. Rather than only patching
+// tics after the fact, actually look at her own last few replies (they're
+// right there in `history` already) for a *concrete, checkable* structural
+// signature, and only when one is genuinely detected, inject a targeted
+// correction just for this turn — precise enough to actually break the
+// habit instead of one more vague "don't repeat yourself" that competes
+// with everything else in the prompt.
+const STAGE_DIRECTION_RE = /[(（][^()（）\n]{1,20}[)）]/g;
+
+function detectStaleReplyPattern(history) {
+  const recentAssistant = (history || []).filter((m) => m.role === 'assistant').slice(-5);
+  if (recentAssistant.length < 5) return null;
+
+  // "(动作)一句话(动作)一句话" 交替体:一条回复里插了两次以上括号动作,
+  // 动作和台词来回穿插,写得像剧本提示——如果最近 5 条里有 4 条以上都这样,
+  // 就是真的固化了,不是偶尔用一次。
+  const stageDirectionHits = recentAssistant.filter((m) => {
+    const matches = (m.content || '').match(STAGE_DIRECTION_RE) || [];
+    return matches.length >= 2;
+  }).length;
+  if (stageDirectionHits >= 4) {
+    return '你最近连续好几条回复都在用"(动作)一句话(动作)一句话"这种反复插入括号动作的交替结构,写得像剧本舞台提示——这次换一种更自然的说话方式,大部分时候完全不需要括号动作,真要用最多一次就够,不要每说一两句话就插一个动作描写。';
+  }
+  return null;
+}
+
 app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'voice', maxCount: 1 }]), async (req, res) => {
   const sessionId = req.body.sessionId;
   let message = req.body.message || '';
@@ -2267,6 +2296,13 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     // saying "vary it," since vague instructions weren't enough to break
     // the habit once it starts repeating within one conversation.
     systemParts.push('留意几个已经开始变成口头禅的习惯,不要再用:句子开头老是"我发现......""说实话......""其实......""老实说......"这种固定开场;还有把一句话切成好几个逗号短句、每个短句语气差不多、听起来像在按同一个节拍念稿子。正常说话该长句就长句,该一个字带过就一个字带过,逗号什么时候断句是随内容自然发生的,不是套路。开口前想一下:这句话如果是脱口而出的,会长这样吗?');
+    // She explicitly asked for this: don't just wait for her to name each
+    // new tic after it's already annoying her — periodically audit your
+    // *own* recent replies yourself. history already has them; actually
+    // look.
+    systemParts.push('每聊到大约第五句左右,回头扫一眼自己最近这几条回复:开头是不是老用同一个词/同一个动作起手,句子结构、节奏、长短是不是都长得差不多,有没有哪个说法反复出现。只要感觉到自己在重复同一种写法,不用等她说,这一条就主动换一种完全不一样的写法。');
+    const stalePatternNote = detectStaleReplyPattern(history);
+    if (stalePatternNote) systemParts.push(stalePatternNote);
     // She explicitly asked: normal chat should stay a few hundred
     // characters, but if she says something like "字数拉满"/"三千字" for a
     // story, it should actually write that much in one go — not fall back
