@@ -395,11 +395,11 @@
           </div>
 
           <div class="card more-card">
-            <label>System Prompt / 身份设定(保存在服务器,所有设备共用)</label>
-            <textarea id="systemPrompt" rows="6" placeholder="给 TA 的角色设定,可留空;也可以用下面的导入按钮从文件里拼进来"></textarea>
+            <label>System Prompt / 身份设定 & 特殊要求(保存在服务器,所有设备共用,长期影响他平时怎么说话表现)</label>
+            <textarea id="systemPrompt" rows="6" placeholder="给 TA 的角色设定、任何特殊要求都可以直接写在这里,可留空;也可以用下面的导入按钮从文件或图片里拼进来"></textarea>
 
-            <label>导入背景资料(md / txt / pdf,会追加到上面)</label>
-            <input type="file" id="docUpload" accept=".md,.txt,.pdf" multiple>
+            <label>导入特殊要求(md / txt / pdf / 图片,图片会自动识别内容转成文字,都会追加到上面)</label>
+            <input type="file" id="docUpload" accept=".md,.txt,.pdf,image/*" multiple>
             <div id="docUploadStatus" class="doc-status"></div>
 
             <label>朗读语言(浏览器朗读模式下生效)</label>

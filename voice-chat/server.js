@@ -2497,6 +2497,28 @@ app.get('/api/config', (req, res) => {
   res.json({ ttsProvider, supabaseReady: SUPABASE_READY, geminiReady: GEMINI_READY });
 });
 
+// 特殊要求里传一张图,她不用自己写图里有什么——直接用 Claude 自己的视觉能力
+// 把画面内容转成一段文字描述,跟 md/txt/pdf 一样追加进 System Prompt 里,
+// 长期影响他平时怎么说话表现。不依赖 Gemini(她那个 key 被 Google 封了),
+// 复用跟主聊天一样、已经确认没问题的视觉通道。
+const REQUIREMENT_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif']);
+
+async function describeImageForRequirements(buffer, mimetype) {
+  const shrunk = await shrinkImageIfNeeded(buffer, mimetype);
+  const claudeMessage = await createMessageWithRetry({
+    model: currentModel(),
+    max_tokens: 500,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: shrunk.mimetype, data: shrunk.buffer.toString('base64') } },
+        { type: 'text', text: '详细描述这张图片的内容(画面、人物长相穿着、风格、能看到的文字信息等一切细节),给出一段清晰的中文描述。直接输出描述本身,不要加任何前缀、客套话或"这张图片"这类开场白。' },
+      ],
+    }],
+  });
+  return (claudeMessage.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+}
+
 app.post('/api/extract-text', upload.single('file'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: '没收到文件' });
@@ -2515,8 +2537,11 @@ app.post('/api/extract-text', upload.single('file'), async (req, res) => {
       text = result.text;
     } else if (ext === '.md' || ext === '.txt') {
       text = req.file.buffer.toString('utf-8');
+    } else if (REQUIREMENT_IMAGE_EXTS.has(ext) || (req.file.mimetype || '').startsWith('image/')) {
+      text = await describeImageForRequirements(req.file.buffer, req.file.mimetype);
+      if (!text) { res.status(500).json({ error: '图片识别失败,没有返回描述' }); return; }
     } else {
-      res.status(400).json({ error: '只支持 .md / .txt / .pdf' });
+      res.status(400).json({ error: '只支持 .md / .txt / .pdf / 图片' });
       return;
     }
     res.json({ ok: true, filename: name, text: (text || '').trim() });
