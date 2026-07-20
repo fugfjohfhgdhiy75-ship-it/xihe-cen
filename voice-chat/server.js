@@ -262,7 +262,13 @@ async function getSystemPrompt() {
   ]);
   const base = (data && data.system_prompt) || '';
   if (!requirementsBlock) return base;
-  return [base, `她列出的一些特殊要求(每条都可能带了"什么时候用"的说明,照着执行):\n${requirementsBlock}`].filter(Boolean).join('\n\n');
+  // Her actual complaint: she asked "do you know what's in the picture I
+  // uploaded" and he answered as if he genuinely can't see any uploaded
+  // file's content — a plausible-sounding but wrong roleplay default, since
+  // the previous wording only framed this block as "requirements to
+  // follow," never telling him he should treat the described content as
+  // something he's already seen and knows. Say that explicitly.
+  return [base, `以下是她单独整理给你看过的一些资料/要求——如果某一条带了"附件内容",那就是你已经真实看过、记在心里的东西(一张图/一个文件的内容),不是什么你看不到的系统数据。她问起"你知不知道""看到了吗"这类问题,直接凭这些内容回答就行,不要说自己看不到图片或文件的内容。每条可能还带了"什么时候用"的说明,照着执行:\n${requirementsBlock}`].filter(Boolean).join('\n\n');
 }
 
 // Summarize the oldest messages of a session into `memories` once the
