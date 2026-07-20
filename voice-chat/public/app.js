@@ -1591,23 +1591,50 @@ async function loadSpecialRequirements() {
 }
 loadSpecialRequirements();
 
+async function postSpecialRequirement(note, file) {
+  const form = new FormData();
+  form.append('note', note);
+  if (file) form.append('file', file);
+  const res = await fetch('/api/special-requirements', { method: 'POST', body: form });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '保存失败');
+  specialReqListEl.appendChild(renderSpecialRequirement(data));
+}
+
 specialReqAddBtnEl.addEventListener('click', async () => {
   const note = specialReqNoteEl.value.trim();
-  const file = specialReqFileEl.files[0];
-  if (!note && !file) { specialReqStatusEl.textContent = '写点说明,或者传个文件/图片'; return; }
+  const files = Array.from(specialReqFileEl.files || []);
+  if (!note && !files.length) { specialReqStatusEl.textContent = '写点说明,或者传个文件/图片'; return; }
   specialReqAddBtnEl.disabled = true;
-  specialReqStatusEl.textContent = file ? '识别中...' : '保存中...';
   try {
-    const form = new FormData();
-    form.append('note', note);
-    if (file) form.append('file', file);
-    const res = await fetch('/api/special-requirements', { method: 'POST', body: form });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '保存失败');
-    specialReqListEl.appendChild(renderSpecialRequirement(data));
+    if (!files.length) {
+      specialReqStatusEl.textContent = '保存中...';
+      await postSpecialRequirement(note, null);
+      specialReqStatusEl.textContent = '已添加';
+    } else {
+      // 一次选了好几个文件/图片:每个文件单独生成一条(都带上同一段说明
+      // 文字),一个一个处理而不是同时并发——避免好几张大图同时解码把
+      // 内存冲高(跟表情包/聊天图片那几处的顾虑一样)。单个文件失败不影响
+      // 其他文件继续处理。
+      let okCount = 0;
+      let failCount = 0;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        specialReqStatusEl.textContent = `正在识别 ${file.name}(${i + 1}/${files.length})...`;
+        try {
+          await postSpecialRequirement(note, file);
+          okCount++;
+        } catch (err) {
+          failCount++;
+          console.error(file.name, err);
+        }
+      }
+      specialReqStatusEl.textContent = failCount
+        ? `已添加 ${okCount} 条,失败 ${failCount} 条`
+        : `已添加 ${okCount} 条`;
+    }
     specialReqNoteEl.value = '';
     specialReqFileEl.value = '';
-    specialReqStatusEl.textContent = '已添加';
   } catch (err) {
     specialReqStatusEl.textContent = '失败: ' + err.message;
   } finally {
