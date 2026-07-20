@@ -804,7 +804,7 @@ async function consumeStickerStream(res, grid, onSetInfo) {
 
 function renderStickerSet(set) {
   const section = document.createElement('div');
-  section.className = 'sticker-set' + (set.is_active ? ' active' : '');
+  section.className = 'sticker-set';
   section.dataset.setId = set.id;
 
   const grid = document.createElement('div');
@@ -818,21 +818,6 @@ function renderStickerSet(set) {
   title.className = 'sticker-set-name';
   title.textContent = set.name;
   header.appendChild(title);
-
-  const activateBtn = document.createElement('button');
-  activateBtn.type = 'button';
-  activateBtn.className = 'mini-btn sticker-set-activate' + (set.is_active ? ' active' : '');
-  activateBtn.textContent = set.is_active ? '使用中' : '设为使用中';
-  activateBtn.disabled = set.is_active;
-  activateBtn.addEventListener('click', async () => {
-    try {
-      await fetch(`/api/sticker-sets/${set.id}/activate`, { method: 'POST' });
-      loadStickerSets();
-    } catch (err) {
-      stickerStatusEl.textContent = '切换失败: ' + err.message;
-    }
-  });
-  header.appendChild(activateBtn);
 
   const regenBtn = document.createElement('button');
   regenBtn.type = 'button';

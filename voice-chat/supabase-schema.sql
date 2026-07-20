@@ -193,29 +193,28 @@ create table if not exists stickers (
 
 -- 表情包收藏(微信表情收藏那种形式):可以有好几套不同风格的表情包(比如
 -- "本人Q版""卡通猫咪"各一套),每套用一段自定义风格提示词生成,互不覆盖。
--- 同一时间只有一套是"使用中"(is_active),聊天时 [表情:tag] 只会从这一套
--- 里取图——换风格就点"设为使用中",不用删掉旧的。
+-- 所有生成过的套都能用——他在回复里自己挑一个当下合适的风格 + 标签
+-- (见 server.js 里 [表情:套名|标签] 的解析),不是只能用某一套"使用中"的。
 create table if not exists sticker_sets (
   id bigint generated always as identity primary key,
   name text not null,
   style_prompt text,
-  is_active boolean not null default false,
   created_at timestamptz not null default now()
 );
 
 alter table stickers add column if not exists set_id bigint references sticker_sets(id) on delete cascade;
 
 -- 迁移:这个表在加 sticker_sets 概念之前就已经存在了——把还没归到任何一套
--- 里的老表情包(set_id 是空的)打包成"第一套",并设为使用中,保证之前生成
--- 好的那批不会凭空消失、聊天发表情包的功能也不会中断。只会跑一次:跑完
--- 之后所有表情包都有 set_id 了,再执行这段 if 判断就不会再进去。
+-- 里的老表情包(set_id 是空的)打包成"第一套",保证之前生成好的那批不会
+-- 凭空消失、聊天发表情包的功能也不会中断。只会跑一次:跑完之后所有表情包
+-- 都有 set_id 了,再执行这段 if 判断就不会再进去。
 do $$
 declare
   default_set_id bigint;
 begin
   if exists (select 1 from stickers where set_id is null) then
-    insert into sticker_sets (name, style_prompt, is_active)
-    values ('第一套', null, true)
+    insert into sticker_sets (name, style_prompt)
+    values ('第一套', null)
     returning id into default_set_id;
     update stickers set set_id = default_set_id where set_id is null;
   end if;
@@ -228,6 +227,10 @@ begin
     alter table stickers add constraint stickers_set_tag_unique unique (set_id, tag);
   end if;
 end $$;
+
+-- 一开始加过"哪一套是使用中"(is_active)的设计,后来想清楚了:所有套都该
+-- 能被他自己选,不该被锁定在某一套里——所以这一列用不上了,删掉。
+alter table sticker_sets drop column if exists is_active;
 
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);

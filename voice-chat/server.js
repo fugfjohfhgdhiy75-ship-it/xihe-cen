@@ -1648,9 +1648,9 @@ async function generateMinimaxImage(sessionId, prompt) {
 // 表情包 — small *pre-generated* sets of fixed reaction stickers, not to be
 // confused with generateMinimaxImage above (which paints a fresh scene
 // every time). She can keep several named sets around (see sticker_sets
-// below, 微信"表情收藏"式) but only one is ever "使用中" — the model picks a
-// tag via a [表情:tag] marker and the server looks it up only within that
-// active set, no live MiniMax call and no auto-image cooldown involved.
+// below, 微信"表情收藏"式), all of them usable at once — the model picks a
+// [表情:套名|标签] marker itself and the server looks that image up, no
+// live MiniMax call and no auto-image cooldown involved.
 const STICKER_SCENE_HINTS = {
   害羞: '脸红害羞,双手捂脸,眼睛弯成月牙,尴尬又开心的表情',
   笑哭: '笑到流眼泪,张嘴大笑,一手扶额',
@@ -1723,8 +1723,8 @@ async function generateStickerImage(tag, stylePrompt) {
 }
 
 // 表情包收藏 — 微信"表情收藏"那种形式:好几套表情包并存,每套自己的名字和
-// 风格提示词,互不覆盖。同一时间只有一套"使用中"(is_active),聊天发表情
-// 只从这一套里挑。GET 把每套连同它的表情图一起返回,前端按套分区块渲染。
+// 风格提示词,互不覆盖。所有套聊天时都能用,不锁定在某一套。GET 把每套
+// 连同它的表情图一起返回,前端按套分区块渲染。
 app.get('/api/sticker-sets', async (req, res) => {
   if (!requireSupabase(res)) return;
   const [{ data: sets, error: setsErr }, { data: stickers, error: stickersErr }] = await Promise.all([
@@ -1745,16 +1745,6 @@ app.delete('/api/stickers/:id', async (req, res) => {
   const { error } = await supabase.from('stickers').delete().eq('id', req.params.id);
   if (error) { res.status(500).json({ error: error.message }); return; }
   res.json({ ok: true });
-});
-
-app.post('/api/sticker-sets/:id/activate', async (req, res) => {
-  if (!requireSupabase(res)) return;
-  const id = Number(req.params.id);
-  const { error: offErr } = await supabase.from('sticker_sets').update({ is_active: false }).neq('id', id);
-  if (offErr) { res.status(500).json({ error: offErr.message }); return; }
-  const { data, error } = await supabase.from('sticker_sets').update({ is_active: true }).eq('id', id).select().single();
-  if (error) { res.status(500).json({ error: error.message }); return; }
-  res.json(data);
 });
 
 app.delete('/api/sticker-sets/:id', async (req, res) => {
@@ -2149,9 +2139,19 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
       getTodayDiaryBlock(),
-      supabase.from('stickers').select('tag, sticker_sets!inner(is_active)').eq('sticker_sets.is_active', true),
+      supabase.from('stickers').select('tag, sticker_sets(name)').order('created_at', { ascending: true }),
     ]);
-    const stickerTags = (stickerRows || []).map((s) => s.tag);
+    // Every set she's generated is available, not just one "active" one —
+    // group by set name so the model can pick both a style and a tag
+    // itself (e.g. 卡通猫咪风格的笑哭 vs 本人Q版的笑哭) rather than being
+    // limited to whatever she last flipped a switch to.
+    const stickerSetGroups = {};
+    for (const row of stickerRows || []) {
+      const setName = (row.sticker_sets && row.sticker_sets.name) || '默认';
+      if (!stickerSetGroups[setName]) stickerSetGroups[setName] = [];
+      if (!stickerSetGroups[setName].includes(row.tag)) stickerSetGroups[setName].push(row.tag);
+    }
+    const stickerSetNames = Object.keys(stickerSetGroups);
 
     const memoryBlock = (memoryRows || []).map((m) => m.summary).join('\n');
     const systemParts = [systemOverride || systemPrompt];
@@ -2193,8 +2193,9 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     if (AUTO_IMAGE_READY) {
       systemParts.push('你现在可以真的发一张照片给她,不只是用文字描述画面。什么时候用:她问起"你在吃什么/在哪/在干嘛/给我看看"这种问题,或者这一刻发张照片确实比文字更自然的时候。用法:在回复的最后加一行 [画:一句具体的画面描述],比如 [画:一碗热气腾腾的牛肉面,木桌上,暖光]——系统会自动帮你生成这张图发给她,这行标记本身不会显示给她看,不用担心露怯。如果画面里有你自己(自拍、你在做什么的照片),不用描述自己的长相,系统会自动带上你的形象设定,你只描述场景、动作、光线就行。不要滥用,大部分回复都不需要配图,只有真的有画面感、值得让她"看见"的时候才用,一次对话里最多用一次。**如果她明确开口要你发张照片/图片(比如直接说"发张照片给我""发个图看看"这种指令,不是隐晦暗示),这就不是可选项了——你的回复里必须带上 [画:...] 这行标记,不能只用文字说"发给你了/拍好啦"却不带标记,那样等于她什么都收不到还被你晃点。另外你写这行标记的时候,图片其实还没真的生成出来(有可能失败),所以文字部分不要写成"已经发给你了/拍好啦"这种既定事实的口吻,自然带过就行,比如"等我" "拍一张"这种,不要抢跑替系统打包票。**[画:...] 里写的画面描述,必须是你此刻真的"看到"的具体内容——如果她要的是某个具体东西(比如"拍你在吃的""拍你现在在哪"),这行描述就得对应她要的那个东西,不能文不对题地随便画一个不相关的画面;同时,回复里给她看的那句话也要跟你脑子里这个画面对得上(比如画面是"一碗牛肉面"就该说"面刚上桌"之类贴合的话),不要写一句跟画面完全无关的通用客套话(比如不管画的是什么都只会说"拍了一张——能看到吗"这种),那样会显得你根本不知道自己刚才"拍"了什么。');
     }
-    if (stickerTags.length) {
-      systemParts.push(`你还有一套表情包,是提前准备好的固定图,跟上面"现拍照片"是两回事——不用现生成、不占那个冷却时间,想快速表达一个情绪反应的时候用这个更合适。目前可用的表情包:${stickerTags.join('、')}。用法:在回复末尾加一行 [表情:标签],标签必须是上面列表里原样的词,比如 [表情:笑哭]——这行标记不会显示给她。跟 [画:...] 一次只能用一个,不要两个都用。日常聊天偶尔用一次活跃气氛就行,不要每条回复都配一个表情包。`);
+    if (stickerSetNames.length) {
+      const setsDesc = stickerSetNames.map((name) => `${name}:${stickerSetGroups[name].join('、')}`).join('\n');
+      systemParts.push(`你还有几套表情包,是提前准备好的固定图,跟上面"现拍照片"是两回事——不用现生成、不占那个冷却时间,想快速表达一个情绪反应的时候用这个更合适。你自己有好几套不同风格,自己看当下气氛挑一套用,不用每次都用同一套:\n${setsDesc}\n用法:在回复末尾加一行 [表情:套名|标签],套名和标签都必须是上面原样的词,比如 [表情:${stickerSetNames[0]}|${stickerSetGroups[stickerSetNames[0]][0]}]——这行标记不会显示给她。跟 [画:...] 一次只能用一个,不要两个都用。日常聊天偶尔用一次活跃气氛就行,不要每条回复都配一个表情包。`);
     }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
@@ -2339,17 +2340,30 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       send({ imageNote: `⚠️ 有 ${skippedImageCount} 张图片处理失败,已跳过,其余照常发送` });
     }
 
-    // [表情:标签] sticker marker — only matters if no photo already won
-    // this turn (they're mutually exclusive by design, and a real photo
-    // takes priority if the model ignored that instruction and used
-    // both). Strip the marker either way so a malformed/unknown tag never
-    // leaks into the visible reply.
+    // [表情:套名|标签] sticker marker — only matters if no photo already
+    // won this turn (they're mutually exclusive by design, and a real photo
+    // takes priority if the model ignored that instruction and used both).
+    // Strip the marker either way so a malformed/unknown tag never leaks
+    // into the visible reply.
     const stickerMatch = text.match(/\[表情[:：]\s*([^\]]+)\]/);
     if (stickerMatch) {
       text = (text.slice(0, stickerMatch.index) + text.slice(stickerMatch.index + stickerMatch[0].length)).trim();
       if (!imageUrl) {
-        const wantedTag = stickerMatch[1].trim();
-        const { data: stickerRow } = await supabase.from('stickers').select('image_url, sticker_sets!inner(is_active)').eq('sticker_sets.is_active', true).eq('tag', wantedTag).maybeSingle();
+        const raw = stickerMatch[1].trim();
+        const parts = raw.split(/[|｜]/);
+        const wantedSetName = parts.length > 1 ? parts[0].trim() : null;
+        const wantedTag = (parts.length > 1 ? parts.slice(1).join('|') : raw).trim();
+        const { data: candidates } = await supabase.from('stickers').select('image_url, sticker_sets(name)').eq('tag', wantedTag);
+        // She wants every set she's generated to be pickable, not locked to
+        // one "active" set — so a bare or mismatched set name just falls
+        // back to a random matching sticker across all sets rather than
+        // failing the whole marker.
+        let stickerRow = wantedSetName && candidates
+          ? candidates.find((c) => c.sticker_sets && c.sticker_sets.name === wantedSetName)
+          : null;
+        if (!stickerRow && candidates && candidates.length) {
+          stickerRow = candidates[Math.floor(Math.random() * candidates.length)];
+        }
         if (stickerRow) imageUrl = stickerRow.image_url;
         else console.log('sticker: unknown tag requested, skipping:', wantedTag);
       }

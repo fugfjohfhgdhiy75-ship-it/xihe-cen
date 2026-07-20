@@ -706,10 +706,6 @@ h1 {
   background: rgba(255, 255, 255, 0.15);
 }
 
-.sticker-set.active {
-  border-color: rgba(90, 150, 220, 0.6);
-}
-
 .sticker-set-header {
   display: flex;
   flex-wrap: wrap;
@@ -722,10 +718,6 @@ h1 {
   font-size: 13px;
   font-weight: 600;
   margin-right: auto;
-}
-
-.sticker-set-activate.active {
-  opacity: 0.6;
 }
 
 .sticker-new-set {
