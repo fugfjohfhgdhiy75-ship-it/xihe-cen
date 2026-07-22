@@ -142,24 +142,27 @@
           <div id="imagePreview" class="image-preview hidden"></div>
 
           <div class="composer">
-            <button id="imageBtn" class="round-btn" title="发图片(可多选)">
-              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 2c3 3 5 6.2 5 9.2a5 5 0 1 1-10 0C7 8.2 9 5 12 2z"/>
-                <path d="M12 13.5V22"/>
-                <path d="M12 17c-2-.3-3.3-1.4-4-3"/>
-                <path d="M12 19.2c2-.2 3.4-1.2 4.2-2.8"/>
-              </svg>
-            </button>
-            <input type="file" id="imageInput" accept="image/*" multiple class="hidden">
             <textarea id="textInput" rows="1" placeholder="输入消息..."></textarea>
-            <button id="voiceBtn" class="round-btn" title="按住说话">
-              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="3" width="6" height="11" rx="3"/>
-                <path d="M5 11a7 7 0 0 0 14 0"/>
-                <path d="M12 18v3"/>
-              </svg>
-            </button>
-            <button id="sendBtn" class="send-btn">发送</button>
+            <div class="composer-actions">
+              <input type="file" id="imageInput" accept="image/*" multiple class="hidden">
+              <button id="imageBtn" class="round-btn" title="发图片(可多选)">
+                <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2c3 3 5 6.2 5 9.2a5 5 0 1 1-10 0C7 8.2 9 5 12 2z"/>
+                  <path d="M12 13.5V22"/>
+                  <path d="M12 17c-2-.3-3.3-1.4-4-3"/>
+                  <path d="M12 19.2c2-.2 3.4-1.2 4.2-2.8"/>
+                </svg>
+              </button>
+              <div class="composer-actions-spacer"></div>
+              <button id="voiceBtn" class="round-btn" title="按住说话">
+                <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="3" width="6" height="11" rx="3"/>
+                  <path d="M5 11a7 7 0 0 0 14 0"/>
+                  <path d="M12 18v3"/>
+                </svg>
+              </button>
+              <button id="sendBtn" class="send-btn">发送</button>
+            </div>
           </div>
         </div>
       </div>

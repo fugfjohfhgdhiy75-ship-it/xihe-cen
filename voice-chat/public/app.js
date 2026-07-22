@@ -2732,7 +2732,7 @@ textInput.addEventListener('keydown', (e) => {
 // what she'd typed. Grows with the text (capped by #textInput's
 // max-height in CSS, then scrolls internally) instead of staying fixed
 // at one line.
-const TEXT_INPUT_MAX_HEIGHT = 110;
+const TEXT_INPUT_MAX_HEIGHT = 160;
 function resizeTextInput() {
   textInput.style.height = 'auto';
   textInput.style.height = Math.min(textInput.scrollHeight, TEXT_INPUT_MAX_HEIGHT) + 'px';
