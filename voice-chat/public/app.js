@@ -1742,25 +1742,35 @@ async function selectSession(id) {
   currentSessionId = id;
   sessionsPanel.classList.add('hidden');
   renderSessionsList();
+  statusText.textContent = '加载记录中...';
+
+  // Fetch first, wipe/repopulate only on success — this used to clear
+  // transcriptEl immediately, so a reload that failed (flaky network, a
+  // send-failure auto-recovery retry) left the *entire visible chat*
+  // blank instead of just failing to refresh, which read as her message
+  // (and everything before it) being silently swallowed. Also re-throws
+  // now instead of swallowing the error internally, so tryAutoRecover's
+  // own catch/retry logic (which assumed this could throw) actually runs.
+  let msgs;
+  try {
+    const res = await fetch(`/api/sessions/${id}/messages`);
+    msgs = await res.json();
+    if (!res.ok) throw new Error(msgs.error || `HTTP ${res.status}`);
+  } catch (err) {
+    statusText.textContent = '加载记录失败: ' + err.message;
+    throw err;
+  }
 
   transcriptEl.innerHTML = '';
   lastBubbleTimeMs = null;
-  statusText.textContent = '加载记录中...';
-  try {
-    const res = await fetch(`/api/sessions/${id}/messages`);
-    const msgs = await res.json();
-    if (!res.ok) throw new Error(msgs.error || `HTTP ${res.status}`);
-    msgs.forEach((m) => {
-      const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
-      const replyTo = m.reply_to_text ? { text: m.reply_to_text, role: m.reply_to_role } : null;
-      const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at, replyTo);
-      if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
-      if (m.is_voice && m.audio_url) attachVoiceBar(bubble, m.audio_url);
-    });
-    statusText.textContent = '';
-  } catch (err) {
-    statusText.textContent = '加载记录失败: ' + err.message;
-  }
+  msgs.forEach((m) => {
+    const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
+    const replyTo = m.reply_to_text ? { text: m.reply_to_text, role: m.reply_to_role } : null;
+    const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at, replyTo);
+    if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
+    if (m.is_voice && m.audio_url) attachVoiceBar(bubble, m.audio_url);
+  });
+  statusText.textContent = '';
 }
 
 // ---- Chat bubbles ----
