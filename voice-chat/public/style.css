@@ -1571,15 +1571,21 @@ h1 {
 }
 
 /* WeChat/Telegram 式:图标是裸的、贴在外面,真正有边框的"盒子"只是输入
-   框本身——不再是把图标和输入框全部装进同一个大圆角玻璃胶囊里。 */
+   框本身——不再是把图标和输入框全部装进同一个大圆角玻璃胶囊里。
+   注:图标之前设成完全透明背景,结果在这种照片背景上直接"隐身"了——
+   看起来像是输入框和发送按钮之间空出一大截没用上,其实是麦克风图标
+   在那,只是看不见。现在给图标一个淡淡的底,保证在任何背景图上都看得
+   见,同时给整条 composer 一条浅浅的底色,不然图标和输入框会漂浮在
+   照片上没有落脚点。 */
 .composer {
   flex: none;
   display: flex;
   gap: 6px;
   align-items: flex-end;
-  padding: 6px 4px;
+  padding: 6px 8px;
   margin-top: 4px;
-  background: transparent;
+  background: rgba(255,255,255,0.22);
+  border-radius: 16px;
   border: none;
   box-shadow: none;
 }
@@ -1590,7 +1596,7 @@ h1 {
   height: 38px;
   border-radius: 50%;
   border: none;
-  background: transparent;
+  background: rgba(255,255,255,0.35);
   color: var(--accent);
   font-size: 17px;
   cursor: pointer;
