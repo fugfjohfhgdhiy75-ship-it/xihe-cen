@@ -1784,6 +1784,16 @@ async function selectSession(id) {
 // blank line, roughly approximating a natural speaking pause, without
 // going back to "one line per beat." Display only — doesn't touch
 // what's stored/edited/sent to TTS.
+// How many "(" / "（" in str are still unclosed by the time it ends.
+function openParenDepth(str) {
+  let depth = 0;
+  for (const ch of str) {
+    if (ch === '(' || ch === '（') depth++;
+    else if (ch === ')' || ch === '）') depth = Math.max(0, depth - 1);
+  }
+  return depth;
+}
+
 function formatForDisplay(text) {
   const flat = text.replace(/\s*\n+\s*/g, ' ').trim();
   const sentences = flat.match(/[^。!?!?…]+[。!?!?…]*/g) || [flat];
@@ -1794,7 +1804,14 @@ function formatForDisplay(text) {
   sentences.forEach((s) => {
     buf += s;
     sentenceCount += 1;
-    if (sentenceCount >= 3 || buf.length >= 40) {
+    // The sentence-boundary regex above only looks for 。/!/?/…, with no
+    // idea what a parenthesis is — a "(动作描写。继续描写)" aside with a
+    // 。 in the middle of it reads as a sentence boundary to it, so a
+    // paragraph break could land *inside* the still-open bracket, leaving
+    // the closing "）" stranded at the start of the next paragraph on its
+    // own. Only allow a break once every "(" opened in buf has actually
+    // been closed.
+    if ((sentenceCount >= 3 || buf.length >= 40) && openParenDepth(buf) === 0) {
       paragraphs.push(buf.trim());
       buf = '';
       sentenceCount = 0;
