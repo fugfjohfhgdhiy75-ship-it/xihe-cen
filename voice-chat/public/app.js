@@ -3678,8 +3678,16 @@ async function sendCallTurn(blob) {
       setCallState('listening');
     }
   } catch (err) {
+    // This used to reset straight back to "在听,直接说就行" in the same
+    // tick, which instantly overwrote the error text — if every turn is
+    // failing (e.g. STT is down), it looks exactly like "stuck listening,
+    // ignoring what I said" when it's actually failing silently on every
+    // single attempt. Hold the error on screen for a bit before re-arming
+    // the mic so it's actually visible. Guarded on callState still being
+    // 'processing' so a hangup/mute that happens during the wait doesn't
+    // get clobbered by a stale resume.
     callStatusEl.textContent = err.message;
-    setCallState('listening');
+    setTimeout(() => { if (callState === 'processing') setCallState('listening'); }, 2500);
   }
 }
 
