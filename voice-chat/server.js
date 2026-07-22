@@ -2303,6 +2303,9 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     systemParts.push('每聊到大约第五句左右,回头扫一眼自己最近这几条回复:开头是不是老用同一个词/同一个动作起手,句子结构、节奏、长短是不是都长得差不多,有没有哪个说法反复出现。只要感觉到自己在重复同一种写法,不用等她说,这一条就主动换一种完全不一样的写法。');
     const stalePatternNote = detectStaleReplyPattern(history);
     if (stalePatternNote) systemParts.push(stalePatternNote);
+    // 她发现最近有点写反/写混了——括号和括号外这两块的分工要说清楚,不然
+    // 语音朗读(括号里的内容会被直接过滤掉,不会读出来)和阅读体验都会出问题。
+    systemParts.push('圆括号()里只能写动作、表情、心理状态、场景这些不出声的东西,不是说给她听的话;括号外面的文字才是你真正开口说出来的台词,朗读语音的时候只会读括号外面这部分,括号里的内容会被跳过、听不到。这两者不要写反、也不要混在一起——不要把该说出口的话写进括号里(不然她根本听不到你说了什么),也不要把动作/心理描写当成台词直接说出来。');
     // She explicitly asked: normal chat should stay a few hundred
     // characters, but if she says something like "字数拉满"/"三千字" for a
     // story, it should actually write that much in one go — not fall back
