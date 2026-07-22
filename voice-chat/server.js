@@ -2811,7 +2811,7 @@ async function synthesizeMiniMax(text) {
     console.error('MiniMax TTS suspiciously small response:', audioBuf.length, 'bytes. base_resp:', JSON.stringify(json.base_resp));
     throw new Error('MiniMax 返回的音频内容异常(只有 ' + audioBuf.length + ' 字节)');
   }
-  console.log('MiniMax TTS ok:', audioBuf.length, 'bytes');
+  console.log('MiniMax TTS ok:', audioBuf.length, 'bytes, model:', MINIMAX_MODEL);
   return audioBuf;
 }
 
