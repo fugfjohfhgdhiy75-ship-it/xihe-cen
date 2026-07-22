@@ -1784,14 +1784,27 @@ async function selectSession(id) {
 // blank line, roughly approximating a natural speaking pause, without
 // going back to "one line per beat." Display only — doesn't touch
 // what's stored/edited/sent to TTS.
-// How many "(" / "（" in str are still unclosed by the time it ends.
-function openParenDepth(str) {
-  let depth = 0;
+// True if str currently has any括号/引号 still open at the point it ends —
+// used to stop a paragraph break from landing inside a "(动作)" aside or a
+// spoken-quote span, which would strand the closing mark at the start of
+// the next paragraph on its own. Curly quotes have distinct open/close
+// characters so they're tracked like brackets; straight "..." quotes look
+// identical on both ends, so an odd running count means we're inside one.
+function hasUnclosedEnclosure(str) {
+  let parenDepth = 0;
+  let curlyQuoteDepth = 0;
+  let straightQuoteCount = 0;
+  let cornerQuoteDepth = 0;
   for (const ch of str) {
-    if (ch === '(' || ch === '（') depth++;
-    else if (ch === ')' || ch === '）') depth = Math.max(0, depth - 1);
+    if (ch === '(' || ch === '（') parenDepth++;
+    else if (ch === ')' || ch === '）') parenDepth = Math.max(0, parenDepth - 1);
+    else if (ch === '“') curlyQuoteDepth++;
+    else if (ch === '”') curlyQuoteDepth = Math.max(0, curlyQuoteDepth - 1);
+    else if (ch === '"') straightQuoteCount++;
+    else if (ch === '「' || ch === '『') cornerQuoteDepth++;
+    else if (ch === '」' || ch === '』') cornerQuoteDepth = Math.max(0, cornerQuoteDepth - 1);
   }
-  return depth;
+  return parenDepth > 0 || curlyQuoteDepth > 0 || cornerQuoteDepth > 0 || (straightQuoteCount % 2 === 1);
 }
 
 function formatForDisplay(text) {
@@ -1805,13 +1818,13 @@ function formatForDisplay(text) {
     buf += s;
     sentenceCount += 1;
     // The sentence-boundary regex above only looks for 。/!/?/…, with no
-    // idea what a parenthesis is — a "(动作描写。继续描写)" aside with a
-    // 。 in the middle of it reads as a sentence boundary to it, so a
-    // paragraph break could land *inside* the still-open bracket, leaving
-    // the closing "）" stranded at the start of the next paragraph on its
-    // own. Only allow a break once every "(" opened in buf has actually
-    // been closed.
-    if ((sentenceCount >= 3 || buf.length >= 40) && openParenDepth(buf) === 0) {
+    // idea what a bracket or quote is — a "(动作描写。继续描写)" aside or
+    // a "说的这句话。还有这句" quote with a 。 in the middle of it reads
+    // as a sentence boundary, so a paragraph break could land *inside*
+    // the still-open span, leaving its closing mark stranded at the
+    // start of the next paragraph on its own. Only allow a break once
+    // everything opened in buf so far has actually been closed.
+    if ((sentenceCount >= 3 || buf.length >= 40) && !hasUnclosedEnclosure(buf)) {
       paragraphs.push(buf.trim());
       buf = '';
       sentenceCount = 0;
