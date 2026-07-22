@@ -2591,6 +2591,7 @@ async function sendMessage(rawText) {
   const userBubble = appendBubble('user', text, localImageUrls, null, null, replyTo);
   clearPendingReplyTo();
   textInput.value = '';
+  resizeTextInput();
   clearImageSelection();
   setBusy(true);
   statusText.textContent = randomLoadingLine();
@@ -2720,11 +2721,23 @@ sendBtn.addEventListener('click', () => {
 });
 
 textInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage(textInput.value);
   }
 });
+
+// She found the old single-line pill input uncomfortable for anything
+// longer than a few words — it just scrolled sideways instead of showing
+// what she'd typed. Grows with the text (capped by #textInput's
+// max-height in CSS, then scrolls internally) instead of staying fixed
+// at one line.
+const TEXT_INPUT_MAX_HEIGHT = 120;
+function resizeTextInput() {
+  textInput.style.height = 'auto';
+  textInput.style.height = Math.min(textInput.scrollHeight, TEXT_INPUT_MAX_HEIGHT) + 'px';
+}
+textInput.addEventListener('input', resizeTextInput);
 
 // ---- Hold-to-talk voice messages ----
 
