@@ -2359,23 +2359,60 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     // does. max_tokens is the *combined* cap (thinking + visible reply), so
     // the budget has to be added on top of the normal reply cap rather than
     // eating into it.
+    // Some newer models (Sonnet 5, Fable 5, etc.) run "adaptive thinking" by
+    // default even when the request never mentions `thinking` at all — just
+    // leaving the field out (the old behavior) doesn't turn it off on those,
+    // which is exactly what she reported: toggle off, model still thinks,
+    // still in English, and since max_tokens wasn't budgeted for the hidden
+    // thinking either, some models came back with a truncated/empty reply.
+    // So when the toggle is off, explicitly send `disabled` instead of
+    // omitting the field.
     const baseMaxTokens = longFormMaxTokens || 1024;
-    const claudeMessage = await createMessageWithRetry({
-      model: currentModel(),
-      max_tokens: thinkingEnabled ? baseMaxTokens + THINKING_BUDGET_TOKENS : baseMaxTokens,
-      system,
-      messages,
-      ...(thinkingEnabled ? { thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS } } : {}),
-    });
+    const thinkingParam = thinkingEnabled
+      ? { type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS }
+      : { type: 'disabled' };
+    let claudeMessage;
+    try {
+      claudeMessage = await createMessageWithRetry({
+        model: currentModel(),
+        max_tokens: thinkingEnabled ? baseMaxTokens + THINKING_BUDGET_TOKENS : baseMaxTokens,
+        system,
+        messages,
+        thinking: thinkingParam,
+      });
+    } catch (err) {
+      // A handful of models reject the `thinking` field outright (either
+      // any value, on models that predate extended thinking, or
+      // specifically `disabled` on models where thinking can't be turned
+      // off at all) — retry once with the field left out entirely rather
+      // than failing the whole reply over a preference toggle.
+      if (/thinking/i.test(err.message || '')) {
+        console.warn('thinking param rejected by model, retrying without it:', err.message);
+        claudeMessage = await createMessageWithRetry({
+          model: currentModel(),
+          max_tokens: thinkingEnabled ? baseMaxTokens + THINKING_BUDGET_TOKENS : baseMaxTokens,
+          system,
+          messages,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     let text = (claudeMessage.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('');
-    const thinkingText = (claudeMessage.content || [])
-      .filter((block) => block.type === 'thinking')
-      .map((block) => block.thinking)
-      .join('\n\n');
+    // Only surface thinking to her when she's actually turned the display
+    // on — a model that ignores `disabled` and thinks anyway shouldn't leak
+    // it into the UI just because it slipped past the request-level guard
+    // above.
+    const thinkingText = thinkingEnabled
+      ? (claudeMessage.content || [])
+          .filter((block) => block.type === 'thinking')
+          .map((block) => block.thinking)
+          .join('\n\n')
+      : '';
 
     // Strip the [画:描述] marker (see the system prompt above) before it
     // ever reaches her — this is a signal for the server, not something
