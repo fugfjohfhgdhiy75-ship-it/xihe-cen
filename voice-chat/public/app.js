@@ -2765,13 +2765,13 @@ textInput.addEventListener('keydown', (e) => {
 
 // She found the old single-line pill input uncomfortable for anything
 // longer than a few words — it just scrolled sideways instead of showing
-// what she'd typed. Grows with the text (capped by #textInput's
-// max-height in CSS, then scrolls internally) instead of staying fixed
-// at one line.
-const TEXT_INPUT_MAX_HEIGHT = 220;
+// what she'd typed. Grows with the text, uncapped here — #textInput's own
+// CSS max-height (45vh) is what actually limits it and switches to an
+// internal scrollbar, so there's one source of truth for the ceiling
+// instead of a JS constant that can drift out of sync with the CSS.
 function resizeTextInput() {
   textInput.style.height = 'auto';
-  textInput.style.height = Math.min(textInput.scrollHeight, TEXT_INPUT_MAX_HEIGHT) + 'px';
+  textInput.style.height = textInput.scrollHeight + 'px';
 }
 textInput.addEventListener('input', resizeTextInput);
 
