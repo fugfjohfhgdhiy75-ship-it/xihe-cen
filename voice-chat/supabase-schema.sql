@@ -247,6 +247,13 @@ create table if not exists special_requirements (
   created_at timestamptz not null default now()
 );
 
+-- "思考过程"(更多页开关):像 Claude App 那样,回复前先看一眼模型自己的
+-- 推理过程。只有换上支持 extended thinking 的模型(Claude 4/4.5 系列)才
+-- 有意义,开着但模型不支持的话就只是拿不到这段内容,不会报错。存进
+-- messages.thinking_text,跟 content 一起存,历史记录重新打开也能展开看。
+alter table settings add column if not exists thinking_enabled boolean not null default false;
+alter table messages add column if not exists thinking_text text;
+
 create index if not exists messages_session_id_idx on messages (session_id, created_at);
 create index if not exists memories_session_id_idx on memories (session_id, created_at);
 create index if not exists diary_entries_date_idx on diary_entries (entry_date desc);

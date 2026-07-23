@@ -136,6 +136,10 @@ async function loadApiOverrides() {
 // into an actual logged/reportable failure instead of nothing.
 const ANTHROPIC_REQUEST_TIMEOUT_MS = 4 * 60 * 1000;
 
+// Extended thinking budget — see the thinking_enabled toggle usage in
+// /api/chat below.
+const THINKING_BUDGET_TOKENS = 4000;
+
 // She hit a stall through a slow third-party relay/model that cleared up
 // on her own manual retry — bumped from 2 to 4 so that kind of transient
 // stall has a better chance of quietly self-healing without her having to
@@ -867,7 +871,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
   if (!requireSupabase(res)) return;
   const { data, error } = await supabase
     .from('messages')
-    .select('id, role, content, image_url, image_urls, audio_url, is_voice, reply_to_text, reply_to_role, created_at')
+    .select('id, role, content, image_url, image_urls, audio_url, is_voice, reply_to_text, reply_to_role, thinking_text, created_at')
     .eq('session_id', req.params.id)
     .eq('visible', true)
     .order('created_at', { ascending: true });
@@ -973,7 +977,7 @@ app.put('/api/settings', async (req, res) => {
   if (!requireSupabase(res)) return;
   const update = { id: 1, updated_at: new Date().toISOString() };
   if (req.body.system_prompt !== undefined) update.system_prompt = req.body.system_prompt || '';
-  for (const key of ['show_mood', 'auto_diary', 'sleep_state_enabled', 'daily_song_enabled', 'proactive_enabled']) {
+  for (const key of ['show_mood', 'auto_diary', 'sleep_state_enabled', 'daily_song_enabled', 'proactive_enabled', 'thinking_enabled']) {
     if (req.body[key] !== undefined) update[key] = Boolean(req.body[key]);
   }
   if (req.body.together_since !== undefined) update.together_since = req.body.together_since || null;
@@ -2252,14 +2256,16 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     }
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId);
 
-    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock, todayDiaryBlock, { data: stickerRows }] = await Promise.all([
+    const [{ data: history }, { data: memoryRows }, systemPrompt, milestonesBlock, todayDiaryBlock, { data: stickerRows }, { data: thinkingSettings }] = await Promise.all([
       supabase.from('messages').select('role, content, reply_to_text, reply_to_role').eq('session_id', sessionId).eq('visible', true).order('created_at', { ascending: true }),
       supabase.from('memories').select('summary').eq('session_id', sessionId).order('created_at', { ascending: true }),
       getSystemPrompt(),
       getConfirmedMilestonesBlock(),
       getTodayDiaryBlock(),
       supabase.from('stickers').select('tag, sticker_sets(name)').order('created_at', { ascending: true }),
+      supabase.from('settings').select('thinking_enabled').eq('id', 1).maybeSingle(),
     ]);
+    const thinkingEnabled = Boolean(thinkingSettings && thinkingSettings.thinking_enabled);
     // Every set she's generated is available, not just one "active" one —
     // group by set name so the model can pick both a style and a tag
     // itself (e.g. 卡通猫咪风格的笑哭 vs 本人Q版的笑哭) rather than being
@@ -2344,17 +2350,29 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       }
     }
 
+    // Extended thinking (更多页"思考过程"开关): only meaningful on models
+    // that actually support it (Claude 4/4.5 family) — if she's switched to
+    // one via her relay, this surfaces its reasoning like the Claude App
+    // does. max_tokens is the *combined* cap (thinking + visible reply), so
+    // the budget has to be added on top of the normal reply cap rather than
+    // eating into it.
+    const baseMaxTokens = longFormMaxTokens || 1024;
     const claudeMessage = await createMessageWithRetry({
       model: currentModel(),
-      max_tokens: longFormMaxTokens || 1024,
+      max_tokens: thinkingEnabled ? baseMaxTokens + THINKING_BUDGET_TOKENS : baseMaxTokens,
       system,
       messages,
+      ...(thinkingEnabled ? { thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS } } : {}),
     });
 
     let text = (claudeMessage.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
       .join('');
+    const thinkingText = (claudeMessage.content || [])
+      .filter((block) => block.type === 'thinking')
+      .map((block) => block.thinking)
+      .join('\n\n');
 
     // Strip the [画:描述] marker (see the system prompt above) before it
     // ever reaches her — this is a signal for the server, not something
@@ -2509,8 +2527,9 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     } else {
       const insertPayload = { session_id: sessionId, role: 'assistant', content: text };
       if (imageUrl) { insertPayload.image_url = imageUrl; insertPayload.image_urls = [imageUrl]; }
+      if (thinkingText) insertPayload.thinking_text = thinkingText;
       const { data: insertedReply } = await supabase.from('messages').insert(insertPayload).select().single();
-      send({ text, imageUrl, assistantMessageId: insertedReply ? insertedReply.id : null });
+      send({ text, imageUrl, thinking: thinkingText || undefined, assistantMessageId: insertedReply ? insertedReply.id : null });
       if (pendingMilestone) send({ milestonePending: { id: pendingMilestone.id, content: pendingMilestone.content } });
       if (recordedMilestone) send({ milestoneRecorded: { id: recordedMilestone.id, content: recordedMilestone.content } });
       send({ done: true });

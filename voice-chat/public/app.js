@@ -114,6 +114,7 @@ const toggleShowMoodEl = document.getElementById('toggleShowMood');
 const toggleDailySongEl = document.getElementById('toggleDailySong');
 const toggleSleepStateEl = document.getElementById('toggleSleepState');
 const toggleProactiveEl = document.getElementById('toggleProactive');
+const toggleThinkingEl = document.getElementById('toggleThinking');
 const togetherSinceEl = document.getElementById('togetherSince');
 const togetherDaysEl = document.getElementById('togetherDays');
 const weatherCityEl = document.getElementById('weatherCity');
@@ -516,6 +517,7 @@ async function loadSettings() {
     toggleDailySongEl.checked = data.daily_song_enabled !== false;
     toggleSleepStateEl.checked = data.sleep_state_enabled !== false;
     toggleProactiveEl.checked = data.proactive_enabled !== false;
+    toggleThinkingEl.checked = data.thinking_enabled === true;
     togetherSinceEl.value = data.together_since || '';
     weatherCityEl.value = data.weather_city || '';
     apiBaseUrlEl.value = data.api_base_url || '';
@@ -631,6 +633,7 @@ toggleShowMoodEl.addEventListener('change', () => patchSettings({ show_mood: tog
 toggleDailySongEl.addEventListener('change', () => patchSettings({ daily_song_enabled: toggleDailySongEl.checked }));
 toggleSleepStateEl.addEventListener('change', () => patchSettings({ sleep_state_enabled: toggleSleepStateEl.checked }));
 toggleProactiveEl.addEventListener('change', () => patchSettings({ proactive_enabled: toggleProactiveEl.checked }));
+toggleThinkingEl.addEventListener('change', () => patchSettings({ thinking_enabled: toggleThinkingEl.checked }));
 togetherSinceEl.addEventListener('change', () => {
   renderTogetherDays();
   patchSettings({ together_since: togetherSinceEl.value });
@@ -1766,7 +1769,7 @@ async function selectSession(id) {
   msgs.forEach((m) => {
     const imageUrls = m.image_urls || (m.image_url ? [m.image_url] : []);
     const replyTo = m.reply_to_text ? { text: m.reply_to_text, role: m.reply_to_role } : null;
-    const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at, replyTo);
+    const bubble = appendBubble(m.role, m.content, imageUrls, m.id, m.created_at, replyTo, m.thinking_text);
     if (m.role === 'assistant') attachAudioLazy(bubble, m.content);
     if (m.is_voice && m.audio_url) attachVoiceBar(bubble, m.audio_url);
   });
@@ -1889,11 +1892,42 @@ function maybeInsertTimeDivider(createdAt) {
   lastBubbleTimeMs = t;
 }
 
-function appendBubble(role, text, imageUrls, id, createdAt, replyTo) {
+// 思考过程 (extended thinking) — collapsed by default like Claude App,
+// shown above the actual reply text within the same bubble.
+function buildThinkingBlock(thinkingText) {
+  const details = document.createElement('details');
+  details.className = 'bubble-thinking';
+  const summary = document.createElement('summary');
+  summary.textContent = '🤔 查看思考过程';
+  details.appendChild(summary);
+  const body = document.createElement('div');
+  body.className = 'bubble-thinking-body';
+  body.textContent = thinkingText;
+  details.appendChild(body);
+  return details;
+}
+
+// The live-streaming path creates the assistant bubble empty before the
+// reply (and its thinking, if any) is known, so this attaches/replaces the
+// thinking block after the fact — history reload instead passes
+// thinkingText straight into appendBubble since it already has it.
+function setBubbleThinking(bubble, thinkingText) {
+  if (!thinkingText) return;
+  const existing = bubble.el.querySelector('.bubble-thinking');
+  if (existing) existing.remove();
+  const block = buildThinkingBlock(thinkingText);
+  const row = bubble.el.querySelector('.bubble-row');
+  if (row) bubble.el.insertBefore(block, row);
+  else bubble.el.appendChild(block);
+}
+
+function appendBubble(role, text, imageUrls, id, createdAt, replyTo, thinkingText) {
   maybeInsertTimeDivider(createdAt);
 
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
+
+  if (thinkingText) div.appendChild(buildThinkingBlock(thinkingText));
 
   if (replyTo && replyTo.text) {
     const quote = document.createElement('div');
@@ -2395,6 +2429,7 @@ async function regenerateReplyAfterEdit(messageId) {
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
+        if (payload.thinking) setBubbleThinking(assistantBubble, payload.thinking);
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.milestoneRecorded) showMilestoneRecorded(payload.milestoneRecorded);
@@ -2636,6 +2671,7 @@ async function sendMessage(rawText) {
           transcriptEl.scrollTop = transcriptEl.scrollHeight;
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
+        if (payload.thinking) setBubbleThinking(assistantBubble, payload.thinking);
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.milestoneRecorded) showMilestoneRecorded(payload.milestoneRecorded);
@@ -2865,6 +2901,7 @@ async function sendVoiceMessage(blob, mime) {
         }
         if (payload.imageUrl) { attachImageToBubble(assistantBubble, payload.imageUrl); gotImage = true; }
         if (payload.voiceUrl) attachVoiceBar(assistantBubble, payload.voiceUrl);
+        if (payload.thinking) setBubbleThinking(assistantBubble, payload.thinking);
         if (payload.imageNote) imageNote = payload.imageNote;
         if (payload.milestonePending) showMilestoneConfirm(payload.milestonePending);
         if (payload.milestoneRecorded) showMilestoneRecorded(payload.milestoneRecorded);

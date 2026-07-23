@@ -1324,6 +1324,33 @@ h1 {
   white-space: nowrap;
 }
 
+/* 思考过程 (extended thinking) — collapsed by default like Claude App,
+   shown above the actual reply within the same bubble. */
+.bubble-thinking {
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 8px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.bubble-thinking summary {
+  cursor: pointer;
+  font-weight: 500;
+  list-style: none;
+}
+
+.bubble-thinking summary::-webkit-details-marker {
+  display: none;
+}
+
+.bubble-thinking-body {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
 /* Distinct but still both legible on the glass — his replies read as a
    near-black neutral, hers a deeper blue that echoes the user-bubble
    tint, so at a glance who's talking is obvious without needing to check
