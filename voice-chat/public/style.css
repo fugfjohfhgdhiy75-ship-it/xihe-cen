@@ -1666,7 +1666,21 @@ h1 {
   bottom: 4px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 22px;
+  padding: 2px;
+}
+
+/* Solid backdrop above fixes the *gap* between the two buttons, but the
+   mic button's own circle was still only 40% opaque — text on the last
+   line could still show through it, blurred and hard to read. Make it
+   fully opaque only inside this overlay (its bare use elsewhere, if any,
+   keeps the original translucent look). */
+.composer-trailing-actions .round-btn {
+  background: var(--glass-strong);
 }
 
 #textInput {
