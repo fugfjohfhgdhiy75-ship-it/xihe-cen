@@ -2304,33 +2304,45 @@ function startEditBubble(bubble) {
   }
   const original = bubble.textEl.textContent;
 
+  const wrap = document.createElement('div');
+  wrap.className = 'edit-input-wrap';
+
   const textarea = document.createElement('textarea');
   textarea.className = 'edit-textarea';
+  textarea.rows = 1;
   textarea.value = original;
-  bubble.textEl.replaceWith(textarea);
-  textarea.focus();
-  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 
   const actions = document.createElement('div');
   actions.className = 'edit-actions';
-  const saveBtn = document.createElement('button');
-  saveBtn.type = 'button';
-  saveBtn.className = 'mini-btn';
-  saveBtn.textContent = '保存';
   const cancelBtn = document.createElement('button');
   cancelBtn.type = 'button';
   cancelBtn.className = 'mini-icon-btn';
   cancelBtn.textContent = '取消';
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'mini-btn';
+  saveBtn.textContent = '保存';
   actions.appendChild(cancelBtn);
   actions.appendChild(saveBtn);
-  textarea.after(actions);
+
+  wrap.appendChild(textarea);
+  wrap.appendChild(actions);
+  bubble.textEl.replaceWith(wrap);
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+  function autoGrow() {
+    textarea.style.height = 'auto';
+    textarea.style.height = textarea.scrollHeight + 'px';
+  }
+  textarea.addEventListener('input', autoGrow);
+  autoGrow();
 
   if (bubble.editBtn) bubble.editBtn.classList.add('hidden');
 
   function exitEdit(finalText) {
     bubble.textEl.textContent = finalText;
-    textarea.replaceWith(bubble.textEl);
-    actions.remove();
+    wrap.replaceWith(bubble.textEl);
     if (bubble.editBtn) bubble.editBtn.classList.remove('hidden');
   }
 

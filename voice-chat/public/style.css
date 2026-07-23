@@ -1436,27 +1436,42 @@ h1 {
 }
 
 
+/* Same pill-shaped, auto-growing box as the bottom composer input:
+   the textarea fills the full width on every wrapped line, and 保存/取消
+   float as an overlay anchored to its bottom-right corner instead of
+   sitting in a separate row below it. */
+.edit-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
 .edit-textarea {
-  flex: 1;
-  background: rgba(255,255,255,0.4);
-  border: 1px solid rgba(255,255,255,0.6);
-  border-radius: 14px;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 22px;
   color: var(--text);
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 16px;
   font-weight: 400;
   font-family: inherit;
   line-height: 1.4;
   letter-spacing: normal;
-  resize: vertical;
-  min-height: 40px;
+  resize: none;
+  overflow-y: auto;
+  max-height: 75vh;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 8px 26px rgba(94,142,207,0.18);
 }
 
 .edit-actions {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 6px;
+  gap: 6px;
 }
 
 .edit-actions .mini-icon-btn {
