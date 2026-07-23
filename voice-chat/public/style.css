@@ -92,6 +92,7 @@
   --glass: rgba(255,255,255,0.28);
   --glass-strong: rgba(255,255,255,0.4);
   --glass-border: rgba(255,255,255,0.65);
+  --composer-overlay-bg: rgba(255,255,255,0.92);
   --text: #2c3e50;
   --text-body: #3a3a3a;
   --text-dim: #7f8c9b;
@@ -111,6 +112,7 @@
   --glass: rgba(20,30,50,0.55);
   --glass-strong: rgba(20,30,50,0.7);
   --glass-border: rgba(255,255,255,0.15);
+  --composer-overlay-bg: rgba(20,30,50,0.92);
   --border: rgba(255,255,255,0.15);
   --user-text-color: #bcdcff;
 }
@@ -1660,6 +1662,15 @@ h1 {
   min-height: 44px;
 }
 
+/* This has to be genuinely near-opaque (--composer-overlay-bg, ~0.92
+   alpha), not the usual --glass-strong (0.4–0.7 depending on theme) —
+   at glass opacity, typed text on the last line still showed faintly
+   through the mic circle. A custom chat-bg photo mode also forces
+   .round-btn itself down to a near-invisible 0.12 alpha via a more
+   specific selector (body.chat-bg-on.chat-bg-dark .round-btn), which
+   would beat any override placed on .round-btn directly — so the fix
+   has to be the *container's own* background, which sits underneath
+   and isn't touched by that rule. */
 .composer-trailing-actions {
   position: absolute;
   right: 4px;
@@ -1667,20 +1678,11 @@ h1 {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--glass-strong);
+  background: var(--composer-overlay-bg, var(--glass-strong));
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: 22px;
   padding: 2px;
-}
-
-/* Solid backdrop above fixes the *gap* between the two buttons, but the
-   mic button's own circle was still only 40% opaque — text on the last
-   line could still show through it, blurred and hard to read. Make it
-   fully opaque only inside this overlay (its bare use elsewhere, if any,
-   keeps the original translucent look). */
-.composer-trailing-actions .round-btn {
-  background: var(--glass-strong);
 }
 
 #textInput {
@@ -2150,6 +2152,7 @@ body.chat-bg-on.chat-bg-dark {
   --glass-strong: rgba(38, 42, 50, 0.44);
   --glass-border: rgba(255, 255, 255, 0.12);
   --border: rgba(255, 255, 255, 0.12);
+  --composer-overlay-bg: rgba(38, 42, 50, 0.92);
 }
 
 /* Solid action pills (发送 / 记下来 / …) use the accent as their FILL
@@ -2187,6 +2190,7 @@ body.chat-bg-on.chat-bg-light {
   --glass-strong: rgba(255, 255, 255, 0.45);
   --glass-border: rgba(255, 255, 255, 0.65);
   --border: rgba(255, 255, 255, 0.55);
+  --composer-overlay-bg: rgba(255, 255, 255, 0.92);
 }
 
 /* Bubble surfaces/user-text hardcode their colors, so the variable flip
