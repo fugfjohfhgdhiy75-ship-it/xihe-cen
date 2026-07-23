@@ -1653,8 +1653,9 @@ h1 {
    button-width column for the *entire height* of the growing textarea,
    so once it wrapped to several lines, every line except the last had a
    blank strip on the right nothing would ever type into — this way the
-   text box is the full row width on every line, and only the very last
-   line can visually run under the floating buttons if it's long enough. */
+   text box is the full row width on every line. (The buttons themselves
+   never overlap actual text — see the padding-bottom reservation on
+   #textInput below.) */
 .composer-input-wrap {
   position: relative;
   flex: 1;
@@ -1691,7 +1692,15 @@ h1 {
   background: transparent;
   border: none;
   color: var(--text);
-  padding: 10px 8px;
+  /* Bottom padding reserves exactly the floating button row's own
+     footprint (44px button + 4px gap to the wrap's edge, plus a little
+     slack) so the last line of typed text always sits ABOVE that zone
+     instead of sharing it — the earlier version let text render behind
+     the buttons and get sliced in half once the box grew past one line,
+     because the button row (48px) is taller than a single text line
+     (~22px). Reserving the space up front means it never overlaps at all,
+     on any line. */
+  padding: 10px 8px 54px;
   font-size: 16px;
   font-family: inherit;
   min-width: 0;
