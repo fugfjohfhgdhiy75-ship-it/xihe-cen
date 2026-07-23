@@ -151,15 +151,19 @@
               </svg>
             </button>
             <input type="file" id="imageInput" accept="image/*" multiple class="hidden">
-            <textarea id="textInput" rows="1" placeholder="输入消息..."></textarea>
-            <button id="voiceBtn" class="round-btn" title="按住说话">
-              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="3" width="6" height="11" rx="3"/>
-                <path d="M5 11a7 7 0 0 0 14 0"/>
-                <path d="M12 18v3"/>
-              </svg>
-            </button>
-            <button id="sendBtn" class="send-btn">发送</button>
+            <div class="composer-input-wrap">
+              <textarea id="textInput" rows="1" placeholder="输入消息..."></textarea>
+              <div class="composer-trailing-actions">
+                <button id="voiceBtn" class="round-btn" title="按住说话">
+                  <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="3" width="6" height="11" rx="3"/>
+                    <path d="M5 11a7 7 0 0 0 14 0"/>
+                    <path d="M12 18v3"/>
+                  </svg>
+                </button>
+                <button id="sendBtn" class="send-btn">发送</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

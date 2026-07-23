@@ -1630,8 +1630,33 @@ h1 {
   transition: background 0.15s;
 }
 
-#textInput {
+/* Wraps just the textarea + the mic/send pair — the pair is positioned
+   as an overlay anchored to its bottom-right corner instead of sitting
+   beside it as a normal flex item. A normal flex layout reserves that
+   button-width column for the *entire height* of the growing textarea,
+   so once it wrapped to several lines, every line except the last had a
+   blank strip on the right nothing would ever type into — this way the
+   text box is the full row width on every line, and only the very last
+   line can visually run under the floating buttons if it's long enough. */
+.composer-input-wrap {
+  position: relative;
   flex: 1;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.composer-trailing-actions {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#textInput {
+  width: 100%;
+  box-sizing: border-box;
   background: transparent;
   border: none;
   color: var(--text);
