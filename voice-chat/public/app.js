@@ -1383,6 +1383,10 @@ const COLOR_PALETTES = [
   { id: 'caramel-macchiato', name: '焦糖玛奇朵', series: 'light',
     assistantText: ASSISTANT_NEUTRAL_LIGHT.text, userText: '#ffffff',
     assistantBubble: ASSISTANT_NEUTRAL_LIGHT.bubble, userBubble: 'rgba(170,85,15,0.92)' },
+  // 她发来一张参考截图,是暖米色底+橄榄绿气泡的配色,照着调的强调色。
+  { id: 'olive-matcha', name: '橄榄抹茶', series: 'light',
+    assistantText: ASSISTANT_NEUTRAL_LIGHT.text, userText: '#ffffff',
+    assistantBubble: ASSISTANT_NEUTRAL_LIGHT.bubble, userBubble: 'rgba(107,124,75,0.94)' },
   { id: 'harmony-night-blue', name: '鸿蒙夜蓝', series: 'dark',
     assistantText: ASSISTANT_NEUTRAL_DARK.text, userText: '#ffffff',
     assistantBubble: ASSISTANT_NEUTRAL_DARK.bubble, userBubble: 'rgba(10,89,247,0.68)' },
@@ -1898,7 +1902,7 @@ function buildThinkingBlock(thinkingText) {
   const details = document.createElement('details');
   details.className = 'bubble-thinking';
   const summary = document.createElement('summary');
-  summary.textContent = '🤔 查看思考过程';
+  summary.textContent = '思考';
   details.appendChild(summary);
   const body = document.createElement('div');
   body.className = 'bubble-thinking-body';

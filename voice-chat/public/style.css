@@ -93,6 +93,11 @@
   --glass-strong: rgba(255,255,255,0.4);
   --glass-border: rgba(255,255,255,0.65);
   --composer-overlay-bg: rgba(255,255,255,0.92);
+  /* Warm cream tint for the composer bar only (她发的参考截图那种米白+
+     橄榄绿基调) — a separate variable from --glass-strong so the rest of
+     the app's cool sky-blue glass look is untouched. */
+  --composer-bg: rgba(250,246,236,0.5);
+  --composer-border: rgba(225,215,195,0.7);
   --text: #2c3e50;
   --text-body: #3a3a3a;
   --text-dim: #7f8c9b;
@@ -113,6 +118,8 @@
   --glass-strong: rgba(20,30,50,0.7);
   --glass-border: rgba(255,255,255,0.15);
   --composer-overlay-bg: rgba(20,30,50,0.92);
+  --composer-bg: rgba(42,38,28,0.72);
+  --composer-border: rgba(255,245,220,0.16);
   --border: rgba(255,255,255,0.15);
   --user-text-color: #bcdcff;
 }
@@ -1327,20 +1334,40 @@ h1 {
 }
 
 /* 思考过程 (extended thinking) — collapsed by default like Claude App,
-   shown above the actual reply within the same bubble. */
+   shown above the actual reply within the same bubble. Restyled after
+   she sent a reference screenshot of a plain "› 思考" line (no boxed
+   background, small muted monospace label) instead of the boxed look
+   this used to have. */
 .bubble-thinking {
   margin-bottom: 6px;
-  padding: 6px 8px;
-  background: rgba(0,0,0,0.06);
-  border-radius: 8px;
-  font-size: 12px;
-  opacity: 0.75;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: 12.5px;
+  opacity: 0.7;
 }
 
 .bubble-thinking summary {
   cursor: pointer;
   font-weight: 500;
   list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
+.bubble-thinking summary::before {
+  content: '›';
+  display: inline-block;
+  font-size: 14px;
+  transition: transform 0.15s;
+}
+
+.bubble-thinking[open] summary::before {
+  transform: rotate(90deg);
 }
 
 .bubble-thinking summary::-webkit-details-marker {
@@ -1623,12 +1650,16 @@ h1 {
   align-items: flex-end;
   padding: 8px 12px;
   margin-top: 4px;
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-border);
+  /* Warm cream tint (--composer-bg) instead of the cool sky-blue glass
+     used everywhere else — she asked to bring the input box closer to a
+     reference screenshot's米白+橄榄绿 look without touching the photo
+     background itself. */
+  background: var(--composer-bg, var(--glass-strong));
+  border: 1px solid var(--composer-border, var(--glass-border));
   border-radius: 22px;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  box-shadow: 0 8px 26px rgba(94,142,207,0.18);
+  box-shadow: 0 8px 26px rgba(120,108,70,0.16);
 }
 
 .round-btn {
@@ -2162,6 +2193,8 @@ body.chat-bg-on.chat-bg-dark {
   --glass-border: rgba(255, 255, 255, 0.12);
   --border: rgba(255, 255, 255, 0.12);
   --composer-overlay-bg: rgba(38, 42, 50, 0.92);
+  --composer-bg: rgba(46, 42, 30, 0.5);
+  --composer-border: rgba(255, 245, 220, 0.14);
 }
 
 /* Solid action pills (发送 / 记下来 / …) use the accent as their FILL
@@ -2185,6 +2218,13 @@ body.chat-bg-on.chat-bg-dark .tabbar {
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
 }
 
+/* Composer keeps the warm cream tint even in this dark-photo mode —
+   .tabbar above stays neutral dark, only the input bar shifts. */
+body.chat-bg-on.chat-bg-dark .composer {
+  background: var(--composer-bg);
+  border-color: var(--composer-border);
+}
+
 body.chat-bg-on.chat-bg-dark .round-btn {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.14);
@@ -2200,6 +2240,8 @@ body.chat-bg-on.chat-bg-light {
   --glass-border: rgba(255, 255, 255, 0.65);
   --border: rgba(255, 255, 255, 0.55);
   --composer-overlay-bg: rgba(255, 255, 255, 0.92);
+  --composer-bg: rgba(250, 246, 236, 0.55);
+  --composer-border: rgba(225, 215, 195, 0.7);
 }
 
 /* Bubble surfaces/user-text hardcode their colors, so the variable flip
