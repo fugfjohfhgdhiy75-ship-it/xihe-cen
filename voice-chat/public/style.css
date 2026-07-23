@@ -1640,7 +1640,7 @@ h1 {
   font-family: inherit;
   min-width: 0;
   resize: none;
-  max-height: 45vh;
+  max-height: 75vh;
   overflow-y: auto;
   line-height: 1.4;
 }
