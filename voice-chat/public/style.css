@@ -1597,39 +1597,30 @@ h1 {
   justify-content: center;
 }
 
-/* Stacked layout (her reference screenshot): the text box gets its own
-   full-width row up top — bigger, roomier — with image/voice/send on a
-   second row underneath instead of squeezed in beside it. */
+/* 她试过 WeChat 式(图标裸露在外)和上下两行式,最后还是想要回最早那种:
+   图片、输入框、麦克风、发送全部装在同一个圆角玻璃框里,一行到底。 */
 .composer {
   flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 10px 8px;
-  margin-top: 4px;
-  background: rgba(255,255,255,0.22);
-  border-radius: 18px;
-  border: none;
-  box-shadow: none;
-}
-
-.composer-actions {
-  display: flex;
-  align-items: center;
   gap: 6px;
-}
-
-.composer-actions-spacer {
-  flex: 1;
+  align-items: flex-end;
+  padding: 8px 12px;
+  margin-top: 4px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 22px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 8px 26px rgba(94,142,207,0.18);
 }
 
 .round-btn {
   flex: none;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: none;
-  background: rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.4);
   color: var(--accent);
   font-size: 17px;
   cursor: pointer;
@@ -1639,23 +1630,17 @@ h1 {
   transition: background 0.15s;
 }
 
-.round-btn:active {
-  background: rgba(255,255,255,0.35);
-}
-
 #textInput {
-  width: 100%;
-  background: rgba(255,255,255,0.55);
-  border: 1px solid var(--glass-border);
-  border-radius: 14px;
+  flex: 1;
+  background: transparent;
+  border: none;
   color: var(--text);
-  padding: 14px;
+  padding: 10px 8px;
   font-size: 16px;
   font-family: inherit;
-  min-height: 54px;
-  box-sizing: border-box;
+  min-width: 0;
   resize: none;
-  max-height: 160px;
+  max-height: 110px;
   overflow-y: auto;
   line-height: 1.4;
 }
