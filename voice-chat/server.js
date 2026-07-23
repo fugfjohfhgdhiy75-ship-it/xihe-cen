@@ -2332,6 +2332,9 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
       const setsDesc = stickerSetNames.map((name) => `${name}:${stickerSetGroups[name].join('、')}`).join('\n');
       systemParts.push(`你还有几套表情包,是提前准备好的固定图,跟上面"现拍照片"是两回事——不用现生成、不占那个冷却时间,想快速表达一个情绪反应的时候用这个更合适。你自己有好几套不同风格,自己看当下气氛挑一套用,不用每次都用同一套:\n${setsDesc}\n用法:在回复末尾加一行 [表情:套名|标签],套名和标签都必须是上面原样的词,比如 [表情:${stickerSetNames[0]}|${stickerSetGroups[stickerSetNames[0]][0]}]——这行标记不会显示给她。跟 [画:...] 一次只能用一个,不要两个都用。日常聊天偶尔用一次活跃气氛就行,不要每条回复都配一个表情包。**如果她明确开口管你要表情包/表情(比如"发个表情包""给我发个笑哭的表情"这种直接的话,不是隐晦暗示),这就不是可选项了——回复里必须带上 [表情:...] 这行标记,挑一个跟她要求或者当下气氛最贴的标签,不能只用文字敷衍过去却不带标记。**用这个表情包的时候,不要在正文里再额外写"(撒娇)""(笑哭)"这种带括号的动作/表情描述来模拟——那是把表情包写成了文字,显得像舞台提示一样出戏。这个情绪已经交给这行标记对应的真图片来表达了,正文只要是你正常会说的话就行,不用再用文字重复一遍同一个情绪。`);
     }
+    if (thinkingEnabled) {
+      systemParts.push('你现在开启了思考过程展示——思考的时候也全程用中文想,不要切换成英文思考。');
+    }
     const system = systemParts.filter(Boolean).join('\n\n') || undefined;
 
     const messages = toClaudeMessages(history);
