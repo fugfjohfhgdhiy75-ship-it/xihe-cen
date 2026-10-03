@@ -96,7 +96,7 @@
   /* Warm cream tint for the composer bar only (她发的参考截图那种米白+
      橄榄绿基调) — a separate variable from --glass-strong so the rest of
      the app's cool sky-blue glass look is untouched. */
-  --composer-bg: rgba(250,246,236,0.5);
+  --composer-bg: rgba(252,250,244,0.94);
   --composer-border: rgba(225,215,195,0.7);
   --text: #2c3e50;
   --text-body: #3a3a3a;
@@ -141,18 +141,19 @@ body {
 
 /* Background lives on a pseudo-element (not directly on body) so the
    saturate/brightness filter that gives it that hazy, low-saturation
-   "morning fog" look only touches the photo — not the UI drawn on top. */
+   "morning fog" look only touches the photo — not the UI drawn on top.
+   Flattened to a plain warm cream per her reference screenshot (an app
+   with no photo backdrop at all) — the sky-bg.jpg image and the custom
+   chat-bg upload feature below are both left in place/untouched (nothing
+   deleted), just not painted on screen for day theme anymore, so it's a
+   one-line revert if she wants the photo back later. */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.05) 30%, rgba(233,244,255,0.15) 75%, rgba(233,244,255,0.35) 100%),
-    url('img/sky-bg.jpg');
-  background-size: cover;
-  background-position: center;
-  filter: saturate(0.78) brightness(1.06);
+  background: #f4f1ea;
+  filter: none;
   transition: filter 0.6s ease;
 }
 
@@ -1158,6 +1159,10 @@ h1 {
   font-family: var(--chat-font-family, inherit);
 }
 
+/* Reference app style: the assistant has no bubble at all (plain text on
+   the page background), only her own messages get a solid color block —
+   see .bubble.assistant / .bubble.user below for the per-role split that
+   replaces the single shared boxed look both used to share. */
 .bubble {
   padding: 9px 14px;
   border-radius: 20px;
@@ -1168,12 +1173,7 @@ h1 {
   max-width: 90%;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   animation: rise 0.2s ease-out;
-  background: var(--assistant-bubble-bg, rgba(255,255,255,0.2));
-  border: 1px solid rgba(255,255,255,0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 
 .bubble .bubble-row {
@@ -1189,11 +1189,14 @@ h1 {
 
 .bubble.user {
   align-self: flex-end;
-  background: var(--user-bubble-bg, rgba(178,205,235,0.2));
+  background: var(--user-bubble-bg, rgba(107,124,75,0.94));
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
 .bubble.assistant {
   align-self: flex-start;
+  background: none;
+  max-width: 100%;
 }
 
 .bubble .bubble-text {
@@ -1393,7 +1396,7 @@ h1 {
 }
 
 .bubble.user .bubble-text {
-  color: var(--user-text-color, #1f4a73);
+  color: var(--user-text-color, #ffffff);
 }
 
 .bubble .bubble-text strong {
@@ -1749,16 +1752,20 @@ h1 {
   outline: none;
 }
 
+/* Circular icon button (↑) instead of the old "发送" text pill — matches
+   the reference screenshot's round up-arrow send button. */
 .send-btn {
   flex: none;
+  width: 40px;
+  height: 40px;
   background: var(--accent);
   border: none;
   color: white;
-  padding: 9px 16px;
-  border-radius: 12px;
+  border-radius: 50%;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-shadow: 0 4px 14px rgba(91,143,214,0.4);
 }
 
@@ -2159,10 +2166,14 @@ h1 {
 }
 
 /* Custom chat background from the workshop — while the chat tab is
-   active it takes over the app's full-screen backdrop (body::before),
-   edge to edge, replacing the default sky in both day and night themes.
-   JS keeps --chat-bg-active pointed at the right (day/night) image. */
-body.chat-bg-on::before,
+   active it used to take over the app's full-screen backdrop
+   (body::before), edge to edge, replacing the default sky in both day
+   and night themes. Day theme now stays flat cream regardless (matches
+   the 1:1 reference screenshot — no photo backdrop there at all); night
+   theme is untouched since she hasn't asked about it and has no
+   reference screenshot for it. The upload itself, --chat-bg-active, and
+   all the day/night luminance-detection JS are all still intact
+   underneath — this is a one-line revert, not a deletion. */
 :root[data-theme="night"] body.chat-bg-on::before {
   background: var(--chat-bg-active);
   background-size: cover;
@@ -2240,22 +2251,21 @@ body.chat-bg-on.chat-bg-light {
   --glass-border: rgba(255, 255, 255, 0.65);
   --border: rgba(255, 255, 255, 0.55);
   --composer-overlay-bg: rgba(255, 255, 255, 0.92);
-  --composer-bg: rgba(250, 246, 236, 0.55);
+  --composer-bg: rgba(252, 250, 244, 0.94);
   --composer-border: rgba(225, 215, 195, 0.7);
 }
 
-/* Bubble surfaces/user-text hardcode their colors, so the variable flip
-   above doesn't reach them — mirror it explicitly. A saved 配色推荐 preset
-   (or manual color) sets --assistant-bubble-bg/--user-bubble-bg on the
-   root and wins over these dark/light theme defaults via the var()
-   fallback. */
-body.chat-bg-on.chat-bg-dark .bubble {
-  background: var(--assistant-bubble-bg, rgba(34, 38, 46, 0.4));
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
+/* Assistant text stays bubble-less even with a custom photo active — the
+   previous version of these rules put a translucent box behind BOTH
+   roles here, which would have quietly undone the "no bubble" look from
+   .bubble.assistant above the moment a background photo was set. Only
+   .bubble.user gets a background override in this mode (and it's the
+   same solid olive fallback everywhere, not a per-photo tint, since it's
+   no longer meant to read as "glass over the photo"). A saved 配色推荐
+   preset (or manual color) still sets --user-bubble-bg on the root and
+   wins over this fallback via the var() default. */
 body.chat-bg-on.chat-bg-dark .bubble.user {
-  background: var(--user-bubble-bg, rgba(56, 84, 120, 0.45));
+  background: var(--user-bubble-bg, rgba(107,124,75,0.94));
 }
 
 body.chat-bg-on.chat-bg-dark .voice-bar {
@@ -2263,13 +2273,8 @@ body.chat-bg-on.chat-bg-dark .voice-bar {
   color: rgba(255, 255, 255, 0.9);
 }
 
-body.chat-bg-on.chat-bg-light .bubble {
-  background: var(--assistant-bubble-bg, rgba(255, 255, 255, 0.3));
-  border-color: rgba(255, 255, 255, 0.45);
-}
-
 body.chat-bg-on.chat-bg-light .bubble.user {
-  background: var(--user-bubble-bg, rgba(178, 205, 235, 0.32));
+  background: var(--user-bubble-bg, rgba(107,124,75,0.94));
 }
 
 /* No hardcoded .bubble.user .bubble-text color override here on purpose —

@@ -2356,46 +2356,73 @@ app.post('/api/chat', upload.fields([{ name: 'images', maxCount: 9 }, { name: 'v
     // Extended thinking (更多页"思考过程"开关): only meaningful on models
     // that actually support it (Claude 4/4.5 family) — if she's switched to
     // one via her relay, this surfaces its reasoning like the Claude App
-    // does. max_tokens is the *combined* cap (thinking + visible reply), so
-    // the budget has to be added on top of the normal reply cap rather than
-    // eating into it.
-    // Some newer models (Sonnet 5, Fable 5, etc.) run "adaptive thinking" by
-    // default even when the request never mentions `thinking` at all — just
-    // leaving the field out (the old behavior) doesn't turn it off on those,
-    // which is exactly what she reported: toggle off, model still thinks,
-    // still in English, and since max_tokens wasn't budgeted for the hidden
-    // thinking either, some models came back with a truncated/empty reply.
-    // So when the toggle is off, explicitly send `disabled` instead of
-    // omitting the field.
+    // does. max_tokens is the *combined* cap (thinking + visible reply);
+    // always budget the extra headroom for it regardless of the toggle,
+    // because some newer models (Sonnet 5, Fable 5, etc.) think by default
+    // no matter what the request says and can't always be fully silenced
+    // (see the fallback chain below) — if we only budgeted for thinking
+    // when the toggle was on, those models could eat the whole max_tokens
+    // on hidden thinking and come back with an empty reply even with the
+    // toggle off. The extra headroom costs nothing when a model genuinely
+    // doesn't think; it only ever raises a ceiling.
+    //
+    // `{type:'adaptive'}` is the current, forward-compatible way to ask
+    // for thinking (works on Sonnet 5 / Fable 5 / Opus 4.6+); the older
+    // `{type:'enabled', budget_tokens}` shape is a fallback for models
+    // that predate adaptive thinking and don't recognize it.
     const baseMaxTokens = longFormMaxTokens || 1024;
-    const thinkingParam = thinkingEnabled
-      ? { type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS }
-      : { type: 'disabled' };
+    const maxTokensWithThinking = baseMaxTokens + THINKING_BUDGET_TOKENS;
     let claudeMessage;
     try {
       claudeMessage = await createMessageWithRetry({
         model: currentModel(),
-        max_tokens: thinkingEnabled ? baseMaxTokens + THINKING_BUDGET_TOKENS : baseMaxTokens,
+        max_tokens: maxTokensWithThinking,
         system,
         messages,
-        thinking: thinkingParam,
+        thinking: thinkingEnabled ? { type: 'adaptive' } : { type: 'disabled' },
       });
     } catch (err) {
-      // A handful of models reject the `thinking` field outright (either
-      // any value, on models that predate extended thinking, or
-      // specifically `disabled` on models where thinking can't be turned
-      // off at all) — retry once with the field left out entirely rather
-      // than failing the whole reply over a preference toggle.
-      if (/thinking/i.test(err.message || '')) {
+      if (!/thinking/i.test(err.message || '')) throw err;
+      // A rejected thinking shape is a 400 (the model just doesn't
+      // recognize this field value), not a transient relay hiccup — the
+      // default 4-retry/10s backoff in createMessageWithRetry exists for
+      // flaky connections, not for "this will never succeed," so these
+      // fallback attempts only get 1 retry each instead of piling up to
+      // ~30s of doomed retries across two or three fallback layers.
+      if (thinkingEnabled) {
+        // This model doesn't understand `adaptive` — try the older
+        // enabled+budget_tokens shape before giving up on thinking.
+        console.warn('thinking:adaptive rejected, trying budget_tokens shape:', err.message);
+        try {
+          claudeMessage = await createMessageWithRetry({
+            model: currentModel(),
+            max_tokens: maxTokensWithThinking,
+            system,
+            messages,
+            thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET_TOKENS },
+          }, 1);
+        } catch (err2) {
+          if (!/thinking/i.test(err2.message || '')) throw err2;
+          console.warn('thinking param rejected by model, retrying without it:', err2.message);
+          claudeMessage = await createMessageWithRetry({
+            model: currentModel(),
+            max_tokens: maxTokensWithThinking,
+            system,
+            messages,
+          }, 1);
+        }
+      } else {
+        // `thinking:disabled` itself was rejected (a handful of models,
+        // like Claude Fable 5, can't be told to not think at all) — drop
+        // the field entirely rather than failing the whole reply over a
+        // preference toggle.
         console.warn('thinking param rejected by model, retrying without it:', err.message);
         claudeMessage = await createMessageWithRetry({
           model: currentModel(),
-          max_tokens: thinkingEnabled ? baseMaxTokens + THINKING_BUDGET_TOKENS : baseMaxTokens,
+          max_tokens: maxTokensWithThinking,
           system,
           messages,
-        });
-      } else {
-        throw err;
+        }, 1);
       }
     }
 

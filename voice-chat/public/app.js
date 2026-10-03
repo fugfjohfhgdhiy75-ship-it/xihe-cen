@@ -1328,11 +1328,12 @@ function applyTextColors() {
   const userColor = currentSettings.user_text_color;
   if (userColor) {
     root.style.setProperty('--user-text-color', userColor);
-  } else if (document.body.classList.contains('chat-bg-dark')) {
-    root.style.setProperty('--user-text-color', '#bcdcff');
-  } else if (document.body.classList.contains('chat-bg-light')) {
-    root.style.setProperty('--user-text-color', '#1f4a73');
   } else {
+    // The user bubble is now always a solid olive block (not a translucent
+    // tint over the photo), so it always wants white text regardless of
+    // how bright/dark the custom background photo itself is — unlike the
+    // assistant side, which still sits directly on the photo and does
+    // need the brightness-driven flip below.
     root.style.removeProperty('--user-text-color');
   }
 
