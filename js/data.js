@@ -87,15 +87,15 @@ const DINOS=[
 
 // 5 个世界 × 8 关 = 40 关
 const WORLDS=[
-{id:1,n:'恐龙谷',ico:'🌿',bgs:['grass','jungle','grass','jungle','grass','river','jungle','grass'],opts:3,pairs:3,pz:[2,4],m3:6,look:.2,core:['word','hear','pic','match','build'],en:['enum','eletter','enum','ephon','enum'],boss:'rex',mini:'tar',
+{id:1,n:'恐龙谷',ico:'🌿',bgs:['grass','jungle','grass','jungle','grass','river','jungle','grass'],opts:3,pairs:3,pz:[2,4],m3:6,look:.2,core:['word','hear','pic','match','build'],en:['enum','eletter','enum','ephon','enum'],boss:'rex',mini:'tar',math:['count','give','more','pattern','house','shadow','qmatch','size','spatial','shape'],
  names:['出发啦','蘑菇林','小溪边','迅猛龙来了','雨中丛林','小河边','大树下','霸王龙山谷']},
-{id:2,n:'蓝色大海',ico:'🌊',bgs:['beach','lake','river','beach','lake','beach','river','beach'],opts:4,pairs:4,pz:[4,6],m3:8,look:.4,core:['word','hear','match','build','cloze','ctx'],en:['enum','ecase','eword','eletter','enum'],boss:'mos',mini:'spi',
+{id:2,n:'蓝色大海',ico:'🌊',bgs:['beach','lake','river','beach','lake','beach','river','beach'],opts:4,pairs:4,pz:[4,6],m3:8,look:.4,core:['word','hear','match','build','cloze','ctx'],en:['enum','ecase','eword','eletter','enum'],boss:'mos',mini:'spi',math:['count','house','more','give','pattern','sort','numorder','spatial','shadow','oddone'],
  names:['沙滩','珊瑚礁','小岛','棘龙挡路','坐小船','灯塔','海边洞穴','沧龙王']},
-{id:3,n:'云朵天空',ico:'☁️',bgs:['falls','canyon','night','falls','canyon','night','falls','night'],opts:4,pairs:4,pz:[6,6],m3:10,look:.5,core:['phrase','hear','build','match','ctx','cloze','sent'],en:['enum','ememory','ephon','eword','enum'],boss:'gig',mini:'all',
+{id:3,n:'云朵天空',ico:'☁️',bgs:['falls','canyon','night','falls','canyon','night','falls','night'],opts:4,pairs:4,pz:[6,6],m3:10,look:.5,core:['phrase','hear','build','match','ctx','cloze','sent'],en:['enum','ememory','ephon','eword','enum'],boss:'gig',mini:'all',math:['add','house','pattern','sort','numorder','spatial','size','count','oddone','shape','sudoku'],
  names:['云朵路','彩虹桥','星星梯','异特龙飞来','大瀑布','月亮船','云朵城堡','南方巨兽龙']},
-{id:4,n:'火山世界',ico:'🌋',bgs:['volcano','desert','volcano','desert','volcano','canyon','desert','volcano'],opts:4,pairs:5,pz:[6,9],m3:12,look:.65,core:['cloze','order','ctx','sent','hear','build','phrase'],en:['enum','eword','ecase','ephon','enum','eletter'],boss:'map',mini:'car',
+{id:4,n:'火山世界',ico:'🌋',bgs:['volcano','desert','volcano','desert','volcano','canyon','desert','volcano'],opts:4,pairs:5,pz:[6,9],m3:12,look:.65,core:['cloze','order','ctx','sent','hear','build','phrase'],en:['enum','eword','ecase','ephon','enum','eletter'],boss:'map',mini:'car',math:['add','house','sudoku','pattern','numorder','spatial','sort','more','oddone','give','shadow'],
  names:['岩浆河','恐龙蛋窝','宝石洞','食肉牛龙','沙漠风','喷泉','火山集市','马普龙']},
-{id:5,n:'冰雪王国',ico:'❄️',bgs:['snow','night','snow','snow','night','snow','falls','night'],opts:5,pairs:6,pz:[9,9],m3:14,look:.8,core:['order','cloze','ctx','sent','phrase','find','hear','build'],en:['enum','eword','ememory','ephon','ecase','enum'],boss:'ind',mini:'rap',
+{id:5,n:'冰雪王国',ico:'❄️',bgs:['snow','night','snow','snow','night','snow','falls','night'],opts:5,pairs:6,pz:[9,9],m3:14,look:.8,core:['order','cloze','ctx','sent','phrase','find','hear','build'],en:['enum','eword','ememory','ephon','ecase','enum'],boss:'ind',mini:'rap',math:['add','house','sudoku','pattern','numorder','give','oddone','spatial','count','size'],
  names:['冰湖','雪橇','冰宫','特暴龙','极光山','雪人村','冰桥','恐龙王座']}];
 
 const MINI=['puzzle','memory','match3','whack','eggs','stones','line','find','puzzle','schulte','memory','match3','whack','eggs','stones','puzzle','line'];

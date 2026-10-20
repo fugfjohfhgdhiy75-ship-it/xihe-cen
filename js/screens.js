@@ -46,7 +46,7 @@ function home(){
   const title=el('h1','title','恐龙认字<span>大冒险</span>');
   const grid=el('div','menu');
   const e=incEgg();const ready=e&&e.warm>=e.need;
-  const items=[['🗺️','冒险地图',`第 ${Math.min(40,s.unlocked)} 关`,worldMap,'big'],['🥚','孵蛋屋',ready?'快孵出来了！':`${s.eggs.length} 颗蛋`,hatchery,ready?'pulse':''],['🎪','游乐场','对对碰·消消乐·拼图',arcade,''],['🦕','恐龙乐园',`${s.dinos.length} 只恐龙`,park,'']];
+  const items=[['🗺️','冒险地图',`第 ${Math.min(40,s.unlocked)} 关`,worldMap,'big'],['🥚','孵蛋屋',ready?'快孵出来了！':`${s.eggs.length} 颗蛋`,hatchery,ready?'pulse':''],['🎪','游乐场','对对碰·消消乐·拼图',arcade,''],['🦕','恐龙乐园',`${s.dinos.length} 只恐龙`,park,''],['🏘️','恐龙小镇',`${(s.town||[]).length} 座房子`,town,'']];
   items.forEach(([i,n,sub,f,c])=>{const b=el('button','mbtn '+c,`<span class="mi">${i}</span><span class="mn">${n}</span><span class="ms">${esc(sub)}</span>`);b.onclick=()=>{SFX.pop();f()};grid.append(b)});
   const par=el('button','parentbtn','⚙️ 家长');par.onclick=parentGate;
   v.append(title,hero,grid,par);show(v);
@@ -76,7 +76,7 @@ function ceremony(egg,{first=false}={}){
   v.append(stage,panelHost);show(v);
   const W=curWorld();
   const setCrack=()=>{const e=eggEl.querySelector('.egg');e.className=e.className.replace(/st\d/,'st'+Math.min(4,Math.ceil(k/steps*4)))};
-  const types=['hear','match','hear','pic','hear','word'];
+  const types=['hear','count','match','pattern','hear','word'];
   const next=()=>{panelHost.innerHTML='';runStage(types[k%types.length],{w:W,host:panelHost,compact:true,onDone:async(ctx)=>{
       k++;bar.children[k-1].classList.add('on');SFX.crack();setCrack();eggEl.classList.remove('jump');void eggEl.offsetWidth;eggEl.classList.add('jump');
       if(k===2)say('蛋裂开了！');
@@ -153,10 +153,12 @@ function levelPlan(n){
   const wi=Math.floor((n-1)/8),W=D.WORLDS[wi],k=(n-1)%8;
   if(k===3)return{battle:true,boss:W.mini,hp:6+wi,W,k};
   if(k===7)return{battle:true,boss:W.boss,hp:8+wi*2,W,k,big:true};
-  const c=W.core,e=W.en,M=D.MINI;
-  const raw=[c[n%c.length],M[(n*2-2)%M.length],e[n%e.length],c[(n+2)%c.length],M[(n*2-1)%M.length],n%2?'read':'speak',c[(n+4)%c.length],e[(n+2)%e.length]];
+  const c=W.core,e=W.en,M=D.MINI,m=W.math;
+  const ni=k<3?k:k-1;
+  const raw=[c[n%c.length],m[(ni*2+wi)%m.length],e[n%e.length],c[(n+2)%c.length],M[(n-1)%M.length],n%2?'read':'speak',m[(ni*2+1+wi)%m.length],c[(n+4)%c.length],e[(n+2)%e.length]];
+  const pools=[c,m,e,c,M,null,m,c,e];
   // 同一关里不出两次同样的游戏（英语数字 enum 可以出两次）
-  for(let i=1;i<raw.length;i++){if(raw[i]!=='enum'&&raw.slice(0,i).includes(raw[i])){const pool=raw[i].startsWith('e')&&raw[i]!=='eggs'?e:c;const alt=pool.find(x=>!raw.includes(x));if(alt)raw[i]=alt}}
+  for(let i=1;i<raw.length;i++){if(raw[i]!=='enum'&&raw.slice(0,i).includes(raw[i])&&pools[i]){const alt=pools[i].find(x=>!raw.includes(x));if(alt)raw[i]=alt}}
   return{stages:raw,W,k}}
 const OBST=['🪨','🌊','🌉','⛰️','🪵','🌵','🔥','🧊','🍄','🌳'];
 function startLevel(n){
@@ -174,7 +176,7 @@ function startLevel(n){
   const host=el('div','stagehost');
   v.append(el('div','lvtitle',`第 ${n} 关 · ${esc(W.names[plan.k])}`),prog,host,track);show(v);
   let i=0,mist=0;
-  const intro=el('div','storycard',`<div class="sico">${W.ico}</div><h2>第 ${n} 关</h2><div class="sname">${esc(W.names[plan.k])}</div><p>一共 ${N} 个难关，答对就能过去。</p>`);
+  const intro=el('div','storycard',`<div class="sico">${W.ico}</div><h2>第 ${n} 关</h2><div class="sname">${esc(W.names[plan.k])}</div><p>一共 ${N} 个难关：认字、数学、英语都有，答对就能过去。</p>`);
   const go=el('button','pbtn good big','出发！');intro.append(go);host.append(intro);
   say(`第${n}关，${W.names[plan.k]}`);
   go.onclick=()=>{SFX.pop();say('出发！');next()};
@@ -221,7 +223,7 @@ function battle(n,plan){
   arena.append(hero,bo);
   const host=el('div','stagehost');
   v.append(el('div','lvtitle',`第 ${n} 关 · ${plan.big?'👑 ':'⚔️ '}${esc(boss.n)}`),host,arena);show(v);
-  const pool=['hear','match','pic','word','enum','eletter',...(W.id>=2?['ctx','cloze','ephon']:[]),...(W.id>=3?['phrase','sent']:[]),...(W.id>=4?['eword']:[])];
+  const pool=['hear','match','pic','word','enum','eletter','count','more','pattern','shadow',...(W.id>=2?['ctx','cloze','ephon','numorder','oddone']:[]),...(W.id>=3?['phrase','sent','add','spatial']:[]),...(W.id>=4?['eword','sudoku']:[])];
   let mist=0,last='';
   const intro=el('div','storycard',`<h2>${esc(boss.n)}来了！</h2><p>${plan.big?'这是大魔王！':'它要考考你！'}每答对一题，就攻击它一次。</p>`);
   const go=el('button','pbtn good big','⚔️ 开战！');intro.append(go);host.append(intro);
@@ -258,8 +260,11 @@ function arcade(){
     ['🍬','恐龙消消乐',()=>pickOpt('恐龙消消乐',[['🦕 恐龙版','dino'],['📝 认字版','ch']],m=>playArcade('match3',{m}))],
     ['🧩','拼图',()=>pickOpt('拼几块？',[['2 块',2],['4 块',4],['6 块',6],['9 块',9]],n=>pickDino(id=>playArcade('puzzle',{n,id})))],
     ['🔨','打恐龙地鼠',()=>playArcade('whack')],['🥚','孵蛋找字',()=>playArcade('eggs')],['🪨','跳石头',()=>playArcade('stones')],['🔍','找不同',()=>playArcade('find')],['🔢','按顺序点',()=>playArcade('schulte')],['🔗','连一连',()=>playArcade('line')]];
+  const MA=[['🏠','搭房子','house'],['👆','数一数','count'],['🧺','拿给恐龙','give'],['⚖️','比多少','more'],['➕','合起来','add'],['🚂','排排队','numorder'],['🔁','找规律','pattern'],['🗂️','分一分','sort'],['📏','大小排队','size'],['🌳','上下前后','spatial'],['🔺','找形状','shape'],['👤','影子配对','shadow'],['🤔','哪个不一样','oddone'],['🧩','小数独','sudoku'],['🔢','数字连连看','qmatch']];
+  const mg=el('div','agrid');MA.forEach(([i,n,t])=>{const b=el('button','abtn',`<span class="mi">${i}</span><span class="mn">${n}</span>`);b.onclick=()=>{SFX.pop();say(n);playArcade(t)};mg.append(b)});
   A.forEach(([i,n,f])=>{const b=el('button','abtn',`<span class="mi">${i}</span><span class="mn">${n}</span>`);b.onclick=()=>{SFX.pop();say(n);f()};g.append(b)});
-  v.append(g);show(v);say('游乐场')}
+  const sc=el('div','ascroll');sc.append(el('div','ctitle','🎮 好玩的'),g,el('div','ctitle','🧮 数学和动脑'),mg);
+  v.append(sc);show(v);say('游乐场')}
 function pickOpt(title,opts,cb){const host=el('div','overlay');const box=el('div','ovbox',`<h2>${esc(title)}</h2>`);const g=el('div','opts');g.style.setProperty('--cols',Math.min(4,opts.length));
   opts.forEach(([l,val])=>{const b=el('button','opt optl',esc(l));b.onclick=()=>{SFX.pop();host.remove();cb(val)};g.append(b)});
   const x=el('button','tbtn close','✕');x.onclick=()=>host.remove();box.append(g,x);host.append(box);document.body.append(host)}
@@ -283,6 +288,18 @@ function playArcade(type,o={}){
     else{G.match3(ctx)}}
   if(type==='puzzle'){ctx.box.innerHTML='';H.puzzle(ctx,{n:o.n,dino:o.id,bg:H.BGS[rnd(H.BGS.length)]})}}
 G._arcade=ctx=>{ctx.prompt('',()=>{})};
+
+// ---------- 恐龙小镇：搭好的房子都在这里 ----------
+function town(){
+  const s=S();const M=G._math;const hs=s.town||[];
+  const v=el('div','screen park town');v.style.backgroundImage='url(assets/img/bg_river.webp)';
+  v.append(topbar());
+  const head=el('div','phd',`<h2 class="wname">🏘️ 恐龙小镇</h2><div class="asub">搭了 ${hs.length} 座房子</div>`);
+  const b=el('button','pbtn good','🔨 去搭房子');b.onclick=()=>playArcade('house');head.append(b);
+  const field=el('div','tfield');
+  if(!hs.length)field.innerHTML='<div class="empty card-c">还没有房子。闯关或者去游乐场“搭房子”，搭好的房子会住进小镇！</div>';
+  hs.forEach((h,i)=>{const c=el('div','thouse',M.houseMini(h));const d=s.dinos[i%Math.max(1,s.dinos.length)];if(d){c.insertAdjacentHTML('beforeend',`<img class="tdino" src="${dimg(d.id)}" alt="">`)}field.append(c)});
+  v.append(head,field);show(v);say(hs.length?'恐龙小镇':'去搭房子吧！')}
 
 // ---------- 恐龙乐园 / 图鉴 ----------
 const STAGE=['宝宝','小恐龙','大恐龙'];const GROW=[5,15];
@@ -324,7 +341,7 @@ function parent(){
   v.innerHTML=`<div class="pwrap"><h2>家长页</h2>
   <div class="pgrid"><div><b>${s.stats.right}</b>答对</div><div><b>${s.stats.wrong}</b>答错</div><div><b>${Math.max(0,s.unlocked-1)}</b>/40 关</div><div><b>${s.dinos.length}</b>只恐龙</div></div>
   <h3>最近容易错的（会自动多出）</h3><div class="misslist">${miss.length?miss.map(([k,v])=>`<span>${esc(nm(k))} <i>×${Math.ceil(v)}</i></span>`).join(''):'还没有错题'}</div>
-  <h3>说明</h3><ul class="pl"><li>只用《小羊上山》第 1–3 级总字表（照片）里的字，第 1 级字只占约一成，用来复习。</li><li>40 关分 5 个世界：词语 → 短语 → 句子，选项从 3 个加到 5 个，干扰项越来越多用形近字（很/狼、我/找、爬/把/爸……）和同音字（在/再、门/们……放进句子里选）。</li><li>每关 8 题，第 4 关小对战，第 8 关大魔王。</li><li>孵蛋：每答对一题蛋暖和一点，普通蛋 30 🔥、稀有蛋 55 🔥、金蛋 90 🔥；满了还要再答 4–6 题帮它破壳。孵出来后喂食长大（宝宝 → 小恐龙 → 大恐龙）。</li><li>“跟读 / 大声读”：浏览器支持时可以点 🎤 识别；不支持时请家长听，读对了点“读对了”。</li></ul>
+  <h3>说明</h3><ul class="pl"><li>只用《小羊上山》第 1–3 级总字表（照片）里的字，第 1 级字只占约一成，用来复习。</li><li>40 关分 5 个世界：词语 → 短语 → 句子，选项从 3 个加到 5 个，干扰项越来越多用形近字（很/狼、我/找、爬/把/爸……）和同音字（在/再、门/们……放进句子里选）。</li><li>每关 9 题：3 道认字、1 道开口说、2 道数学、2 道英语、1 个小游戏。第 4 关小对战，第 8 关大魔王。</li><li>数学和动脑（参考《3–6 岁儿童学习与发展指南》4–5 岁的目标）：手口一致点数到 10、按数取物、比多少、数字排排队、找规律（AB → AAB/ABB → ABC/AABB）、分类、大小排序、上下前后里、认图形、影子配对、哪个不一样、3×3 小数独、照图纸搭房子（先下后上）。后面的世界有 5 以内、10 以内的加减（用实物，不背算式），这是 5–6 岁的目标，先慢慢接触。</li><li>孵蛋：每答对一题蛋暖和一点，普通蛋 30 🔥、稀有蛋 55 🔥、金蛋 90 🔥；满了还要再答 4–6 题帮它破壳。孵出来后喂食长大（宝宝 → 小恐龙 → 大恐龙）。</li><li>“跟读 / 大声读”：浏览器支持时可以点 🎤 识别；不支持时请家长听，读对了点“读对了”。</li></ul>
   <h3>设置</h3></div>`;
   const w=v.querySelector('.pwrap');const row=el('div','vbtns');
   const ul=el('button','pbtn','🔓 解锁全部关卡');ul.onclick=()=>{s.unlocked=41;save();bubble('已解锁')};
@@ -333,5 +350,5 @@ function parent(){
   const bk=el('button','pbtn good','← 返回');bk.onclick=home;
   row.append(bk,ul,eg,rs);w.append(row);show(v)}
 
-window.SCREENS={home,worldMap,startLevel,hatchery,park,arcade,ceremony,runStage,levelPlan,newEgg,parent};
+window.SCREENS={town,home,worldMap,startLevel,hatchery,park,arcade,ceremony,runStage,levelPlan,newEgg,parent};
 })();
