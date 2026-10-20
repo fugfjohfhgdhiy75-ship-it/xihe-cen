@@ -18,6 +18,13 @@ function load(){try{const t=localStorage.getItem(KEY);if(t){S=Object.assign(fres
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 load();
 
+// 旧版 Safari（iOS 15 以前）不认 aspect-ratio：用 JS 按宽度补高度
+if(!(window.CSS&&CSS.supports&&CSS.supports('aspect-ratio','1/1'))){
+  const AR=[['.m3',1],['.m3c',1],['.pzboard',9/16],['.shp',1],['.sc',1]];
+  const fix=()=>{AR.forEach(([s,r])=>document.querySelectorAll(s).forEach(e=>{if(e.offsetWidth)e.style.height=e.offsetWidth*r+'px'}));
+    document.querySelectorAll('[data-ar]').forEach(e=>{const r=+e.dataset.ar;if(e.classList.contains('hboard')){if(e.offsetHeight)e.style.width=e.offsetHeight*r+'px'}else if(e.offsetWidth)e.style.height=e.offsetWidth/r+'px'})};
+  let q=0;new MutationObserver(()=>{if(!q){q=1;requestAnimationFrame(()=>{q=0;fix()})}}).observe(document.documentElement,{childList:true,subtree:true});addEventListener('resize',fix)}
+
 // ---------- 语音 ----------
 const AUD=window.AUD||{};
 let cur=null,ttsTimer=0,speakId=0;

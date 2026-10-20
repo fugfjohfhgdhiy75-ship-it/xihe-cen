@@ -227,12 +227,12 @@ const HLV={1:['hut','dome','tower'],2:['win','chim','tower'],3:['chim','two','tw
 const WALLC=['#f7b267','#9ad1d4','#c3e88d','#f7d6e0','#ffd166','#b8c0ff','#fde2b6'],ROOFC=['#e63946','#577590','#2a9d8f','#8338ec','#f3722c'],DOORC=['#8d5524','#6a4c93','#2b7a78'],BLKC=['#ff6b6b','#ffc93c','#4cc9f0','#7bd389','#b388ff'];
 function houseColors(){const w=shuffle(WALLC),r=shuffle(ROOFC),b=shuffle(BLKC);return{w:w[0],w2:w[1],r:r[0],r2:r[1],d:DOORC[rnd(3)],f:'#ffffff',b0:b[0],b1:b[1],b2:b[2]}}
 function pieceHTML(p,col,cls=''){return `<div class="blk t-${p.t} ${cls}" style="--c:${col[p.c]}">${p.t==='flag'?'<span>🚩</span>':''}</div>`}
-function houseMini(h){const T=HOUSES[h.t];if(!T)return'';return `<div class="hmini" style="aspect-ratio:${T.W}/${T.H};width:min(100%,${(7*T.W/T.H).toFixed(2)}em)">${T.p.map(p=>`<div class="hslot" style="left:${p.x/T.W*100}%;top:${p.y/T.H*100}%;width:${p.w/T.W*100}%;height:${p.h/T.H*100}%">${pieceHTML(p,h.col)}</div>`).join('')}</div>`}
+function houseMini(h){const T=HOUSES[h.t];if(!T)return'';return `<div class="hmini" data-ar="${T.W/T.H}" style="aspect-ratio:${T.W}/${T.H};width:min(100%,${(7*T.W/T.H).toFixed(2)}em)">${T.p.map(p=>`<div class="hslot" style="left:${p.x/T.W*100}%;top:${p.y/T.H*100}%;width:${p.w/T.W*100}%;height:${p.h/T.H*100}%">${pieceHTML(p,h.col)}</div>`).join('')}</div>`}
 function buildHouse(ctx,{tid,onBuilt}={}){
   const lv=ctx.w.id;const id=tid||HLV[lv][rnd(3)];const T=HOUSES[id];const col=houseColors();
   const colorGhost=lv<=2;const nDis=lv<=1?1:lv<=2?1:lv<=3?2:3;
   const p0=`搭房子：${T.n}！先搭下面，再搭上面`;ctx.prompt(p0,()=>say('搭房子！先搭下面，再搭上面'));
-  const wrap=el('div','hwrap');const board=el('div','hboard');board.style.aspectRatio=`${T.W}/${T.H}`;
+  const wrap=el('div','hwrap');const board=el('div','hboard');board.style.aspectRatio=`${T.W}/${T.H}`;board.dataset.ar=T.W/T.H;
   const placed=T.p.map(()=>false);
   const slots=T.p.map((p,i)=>{const s=el('div','hslot ghost'+(colorGhost?'':' gray'),pieceHTML(p,col));s.style.cssText=`left:${p.x/T.W*100}%;top:${p.y/T.H*100}%;width:${p.w/T.W*100}%;height:${p.h/T.H*100}%;z-index:${p.t==='chim'?1:p.t==='roof'||p.t==='dome'?3:p.t==='wall'||p.t==='block'?2:4}`;s.dataset.i=i;board.append(s);return s});
   if(!colorGhost){const bp=el('div','blueprint',`<div class="bplab">📋 图纸</div>${houseMini({t:id,col})}`);wrap.append(bp)}

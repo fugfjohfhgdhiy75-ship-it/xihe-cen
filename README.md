@@ -4,7 +4,7 @@
 
 ## 怎么玩
 - 直接用浏览器打开 `index.html`（双击即可，不需要网络；跟读 / 大声读的语音识别要联网）。
-- 或者在 GitHub 仓库 Settings → Pages 里选 “Deploy from a branch”，选这个分支和根目录 `/`，就有一个网址，平板和电视都能打开。
+- 网页版：仓库需要是公开的（免费账号的私有仓库不能开 Pages）。Settings → Pages → Source 选 “Deploy from a branch” → 分支选 `claude/dino-word-adventure`，文件夹选 `/ (root)` → Save。一两分钟后打开 https://fugfjohfhgdhiy75-ship-it.github.io/xihe-cen/ 。在 iPhone / iPad 的 Safari 里点“分享 → 添加到主屏幕”，就能像 App 一样全屏打开。
 
 ## 内容
 - 40 关，5 个世界（恐龙谷、蓝色大海、云朵天空、火山世界、冰雪王国）：词语 → 短语 → 句子，选项从 3 个加到 5 个，越往后越多形近字（很/狼、我/找、爬/把/爸）和同音字（在/再、门/们，放进句子里选）。
