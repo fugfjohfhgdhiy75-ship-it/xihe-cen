@@ -246,7 +246,7 @@ function buildHouse(ctx,{tid,onBuilt}={}){
     b.onclick=()=>{if(b.disabled)return;tray.querySelectorAll('.sel').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');sel=b;SFX.tick();
       // 自动找能放的位置
       const i=T.p.findIndex((p,j)=>!placed[j]&&p.t===q.t&&col[p.c]===col[q.c]);
-      if(i<0){ctx.wrong(b,'搭房子',()=>say('这块用不上哦'));b.classList.remove('sel');sel=null;b.classList.add('nouse');return}
+      if(i<0){ctx.wrong(b,'搭房子',()=>say('这块用不上哦'),{soft:1});b.classList.remove('sel');sel=null;b.classList.add('nouse');return}
       const deps=(T.p[i].dep||[]).filter(j=>!placed[j]);
       if(deps.length){shake(b);SFX.no();say('先搭下面的！');deps.forEach(j=>{slots[j].classList.add('hintg');setTimeout(()=>slots[j].classList.remove('hintg'),1200)});return}
       place(i,b)};tray.append(b)});

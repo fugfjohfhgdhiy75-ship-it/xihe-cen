@@ -24,59 +24,95 @@ function bigShow(html){return el('div','show',html)}
 
 const G={};
 
-// ---- 听音选字 ----
+const ph=ctx=>ctx.w.phase||1;
+const withPic=L=>L.filter(x=>x[1]);
+// 词语/短语干扰项：优先找有相同字的（小猫 → 黑猫、小狗），要认真看才能分清
+function simItems(t,pool,n,{pic=false,strict=pic}={}){
+  const share=x=>[...new Set(t[0])].filter(c=>x[0].includes(c)).length;
+  const core=w=>w.replace(/[，。！？]/g,'');const tail=w=>core(w).slice(-1);
+  // 看图的题：干扰项不能和答案说的是同一种东西（小猫/黑猫、小牛/老牛），也不能互相包含（小兔/小白兔）
+  const clash=x=>strict&&(tail(x[0])===tail(t[0])||core(x[0]).includes(core(t[0]))||core(t[0]).includes(core(x[0])));
+  const es=new Set([t[1]]);const out=[];
+  const cand=shuffle(pool.filter(x=>x[0]!==t[0])).sort((a,b)=>share(b)-share(a));
+  for(const x of cand){if(out.length>=n)break;if(clash(x))continue;if(pic&&(!x[1]||es.has(x[1])))continue;if(pic)es.add(x[1]);out.push(x)}
+  return out}
+const wordPool=ctx=>ph(ctx)===1?D.WD:[...D.PH,...D.WD.filter(x=>x[0].length>=3)];
+
+// ---- 听音选字：只考第三级新字和容易混的字 ----
 G.hear=ctx=>{
-  const pool=[...D.LCH,...D.CH.map(x=>x[0])];
-  const t=pick(pool,1,x=>x);const n=optN(ctx);
-  const ds=distractChars(t,n-1,ctx.w.look+.2);
+  const t=pick(D.HARD,1,x=>x,{review:false});const n=optN(ctx);
+  const ds=distractChars(t,n-1,Math.max(.7,ctx.w.look));
   ctx.prompt('听一听，点出这个字',()=>say(t));
   ctx.box.append(bigShow('<span class="ear">👂</span>'),choices(ctx,[{html:tz(t),ok:1},...ds.map(d=>({html:tz(d)}))],{key:t,onRight:()=>say(t)}));
   say('听一听，点出这个字',t)};
 
-// ---- 看字选图 ----
-G.pic=ctx=>{
-  const t=pick(D.CH);const n=optN(ctx,4);const ds=uniqEmo(t,D.CH,n-1);
-  ctx.prompt('这个字是哪张图？',()=>say('这个字是哪张图？'));
-  ctx.box.append(bigShow(tz(t[0],'xl')),choices(ctx,[{html:emo(t[1]),ok:1},...ds.map(d=>({html:emo(d[1])}))],{key:t[0],cls:'opt pic',onRight:()=>say(t[0])}));
-  say('这个字是哪张图？')};
+// ---- 听词语，选对的词语（不看图，几个词长得像）----
+G.hearw=ctx=>{
+  const pool=wordPool(ctx);const t=pick(pool);const n=optN(ctx);const ds=simItems(t,pool,n-1);
+  ctx.prompt('听一听，点出这个词',()=>say(t[0]));
+  ctx.box.append(bigShow('<span class="ear">👂</span>'),choices(ctx,[{html:tzw(t[0]),ok:1},...ds.map(d=>({html:tzw(d[0])}))],{key:t[0],cls:'opt wordopt',onRight:()=>say(t[0])}));
+  say('听一听，点出这个词',t[0])};
 
-// ---- 看图选字（形近字干扰）----
+// ---- 看字选图（旧题型，现在用词语）----
+G.pic=ctx=>G.word(ctx);
+
+// ---- 看图选词语（干扰项和答案有相同的字）----
 G.match=ctx=>{
-  const t=pick(D.CH);const n=optN(ctx);
-  const ds=distractChars(t[0],n-1,ctx.w.look+.3,{hear:false,pool:D.CH.map(x=>x[0])});
-  ctx.prompt('图片对应哪个字？',()=>say('图片对应哪个字？'));
-  ctx.box.append(bigShow(emo(t[1])),choices(ctx,[{html:tz(t[0]),ok:1},...ds.map(d=>({html:tz(d)}))],{key:t[0],onRight:()=>say(t[0])}));
-  say('图片对应哪个字？')};
+  const pool=withPic(wordPool(ctx));const t=pick(pool);const n=optN(ctx);const ds=simItems(t,wordPool(ctx),n-1,{strict:true});
+  const p=ph(ctx)===1?'这张图是哪个词语？':'这张图说的是哪一个？';
+  ctx.prompt(p,()=>say(p));
+  ctx.box.append(bigShow(emo(t[1])),choices(ctx,[{html:tzw(t[0]),ok:1},...ds.map(d=>({html:tzw(d[0])}))],{key:t[0],cls:'opt wordopt',onRight:()=>say(t[0])}));
+  say(p)};
 
-// ---- 词语选图（看词 / 听词）----
+// ---- 词语选图（看词 / 听词），图里有长得像的词 ----
 G.word=ctx=>{
-  const t=pick(D.WD);const n=optN(ctx,4);const ds=uniqEmo(t,D.WD,n-1);const listen=Math.random()<.5;
+  const pool=withPic(D.WD);const t=pick(pool);const n=optN(ctx,4);const ds=simItems(t,pool,n-1,{pic:true});const listen=Math.random()<.4;
   const p=listen?'听一听，点对的图':'这个词语是哪张图？';
   ctx.prompt(p,()=>listen?say(t[0]):say(p));
   ctx.box.append(bigShow(listen?'<span class="ear">👂</span>':tzw(t[0])),choices(ctx,[{html:emo(t[1]),ok:1},...ds.map(d=>({html:emo(d[1])}))],{key:t[0],cls:'opt pic',onRight:()=>say(t[0])}));
   listen?say(p,t[0]):say(p)};
 
-// ---- 听短语选图 ----
+// ---- 短语选图：一半看字读，一半听 ----
 G.phrase=ctx=>{
-  const t=pick(D.PH);const n=optN(ctx,4);const ds=uniqEmo(t,D.PH,n-1);
-  ctx.prompt('听一听，点对的图',()=>say(t[0]));
-  ctx.box.append(bigShow('<span class="ear">👂</span>'),choices(ctx,[{html:emo(t[1]),ok:1},...ds.map(d=>({html:emo(d[1])}))],{key:t[0],cls:'opt pic',onRight:async()=>{const s=ctx.box.querySelector('.show');s.innerHTML=tzw(t[0]);await say(t[0])}}));
-  say('听一听，点对的图',t[0])};
+  const pool=withPic(D.PH);const t=pick(pool);const n=optN(ctx,4);const ds=simItems(t,pool,n-1,{pic:true});const listen=Math.random()<.4;
+  const p=listen?'听一听，点对的图':'读一读，点对的图';
+  ctx.prompt(p,()=>listen?say(t[0]):say(p));
+  ctx.box.append(bigShow(listen?'<span class="ear">👂</span>':tzw(t[0])),choices(ctx,[{html:emo(t[1]),ok:1},...ds.map(d=>({html:emo(d[1])}))],{key:t[0],cls:'opt pic',onRight:async()=>{const s=ctx.box.querySelector('.show');s.innerHTML=tzw(t[0]);await say(t[0])}}));
+  listen?say(p,t[0]):say(p)};
+
+// ---- 短语填空：颜色（＿＿的花）或者数量（＿只小鸟）----
+const COLOR_PH=[['红红','的花','🌺'],['白白','的云','☁️'],['黑黑','的猫','🐈‍⬛'],['绿绿','的叶子','🍃'],['蓝蓝','的大海','🌊'],['黄黄','的月亮','🌕'],['黄黄','的叶子','🍂'],['白白','的雪人','☃️'],['绿绿','的小草','🌿'],['黑黑','的天','🌃']];
+const COLORS=['红红','白白','黑黑','绿绿','蓝蓝','黄黄'];
+const QTY=[['小鸟','🐦'],['小猫','🐱'],['小兔','🐰'],['小鱼','🐟'],['蜜蜂','🐝'],['小狗','🐶']];
+const QN=['','一','两','三','四','五'];
+G.pfill=ctx=>{
+  const n=optN(ctx,4);
+  if(Math.random()<.5){const t=pick(COLOR_PH,1,x=>x[0]+x[1]);const ds=shuffle(COLORS.filter(c=>c!==t[0])).slice(0,n-1);const full=t[0]+t[1];
+    ctx.prompt('看图，选一选放进去',()=>say(full));
+    const box=bigShow(`<div class="sent">${emo(t[2])}<div class="stext big"><span class="blank">　　</span>${esc(t[1])}</div></div>`);
+    ctx.box.append(box,choices(ctx,[{html:tzw(t[0]),ok:1},...ds.map(x=>({html:tzw(x)}))],{key:full,cls:'opt wordopt',onRight:async()=>{const b=box.querySelector('.blank');b.textContent=t[0];b.classList.add('filled');await say(full)}}));
+    say('看图，选一选放进去');return}
+  const k=1+rnd(ctx.w.id>=3?5:3);const q=QTY[rnd(QTY.length)];const full=QN[k]+'只'+q[0];
+  const ds=shuffle([1,2,3,4,5].filter(x=>x!==k&&(ctx.w.id>=3||x<=4))).slice(0,n-1);
+  ctx.prompt('数一数，选一选放进去',()=>say('数一数，有几只？'));
+  const box=bigShow(`<div class="sent"><span class="og big">${q[1].repeat(k)}</span><div class="stext big"><span class="blank one">　</span>只${esc(q[0])}</div></div>`);
+  ctx.box.append(box,choices(ctx,[{html:tz(QN[k]),ok:1},...ds.map(x=>({html:tz(QN[x])}))],{key:full,onRight:async()=>{const b=box.querySelector('.blank');b.textContent=QN[k];b.classList.add('filled');await say(full)}}));
+  say('数一数，有几只？')};
 
 // ---- 读句子选图（不先播音）----
 G.sent=ctx=>{
-  const t=pick(D.SN);const n=optN(ctx,4);const ds=uniqEmo(t,D.SN,n-1);
+  const pool=withPic(D.SN);const t=pick(pool);const n=optN(ctx,4);const ds=simItems(t,pool,n-1,{pic:true});
   let heard=false;
   ctx.prompt('读一读，点对的图',()=>{heard?say(t[0]):say('读一读，点对的图')});
   ctx.box.append(bigShow(tzw(t[0])),choices(ctx,[{html:emo(t[1]),ok:1},...ds.map(d=>({html:emo(d[1])}))],{key:t[0],cls:'opt pic',onRight:()=>say(t[0])}));
-  const ow=ctx.wrong;ctx.wrong=(b,k)=>{heard=true;ow(b,k,()=>say(t[0]))};
+  const ow=ctx.wrong;ctx.wrong=(b,k,re,o)=>{heard=true;ow(b,k,()=>say(t[0]),o)};
   say('读一读，点对的图')};
 
 // ---- 拼词：按顺序点字 ----
 G.build=ctx=>{
-  const pool=ctx.w.id>=3?[...D.WD.filter(x=>x[0].length>=2),...D.PH.filter(x=>x[0].length<=5)]:D.WD.filter(x=>x[0].length>=2);
+  const pool=ph(ctx)===1?D.WD.filter(x=>x[0].length>=2):D.PH.filter(x=>x[0].length<=5);
   const t=pick(pool);const w=[...t[0]];
-  const nd=ctx.w.id<=1?1:2;
+  const nd=ph(ctx)===1?2:3;
   const ds=[];for(const c of w){for(const d of distractChars(c,1,.8)){if(ds.length<nd&&!w.includes(d)&&!ds.includes(d))ds.push(d)}}
   while(ds.length<nd){const d=C.ALLCH[rnd(C.ALLCH.length)];if(!w.includes(d)&&!ds.includes(d))ds.push(d)}
   ctx.prompt('听一听，拼出这个词',()=>say(t[0]));
@@ -85,7 +121,7 @@ G.build=ctx=>{
   let i=0;
   shuffle([...w.map((c,k)=>({c,k})),...ds.map(c=>({c,k:-1}))]).forEach(o=>{const b=el('button','opt',tz(o.c));b.onclick=async()=>{if(b.disabled)return;
     if(o.c===w[i]){b.disabled=true;b.classList.add('gone');slots.children[i].innerHTML=tz(o.c,'sm');slots.children[i].classList.add('fill');SFX.pop();bounce(slots.children[i]);i++;
-      if(i===w.length){ctx.right(slots,t[0]);slots.insertAdjacentHTML('beforeend',emo(t[1]));await say(t[0]);ctx.done()}}
+      if(i===w.length){ctx.right(slots,t[0]);if(t[1])slots.insertAdjacentHTML('beforeend',emo(t[1]));await say(t[0]);ctx.done()}}
     else{ctx.wrong(b,t[0])}};tiles.append(b)});
   ctx.box.append(slots,tiles);say('听一听，拼出这个词',t[0])};
 
@@ -130,7 +166,7 @@ G.find=ctx=>{
 
 // ---- 孵蛋找字：找出 3 颗一样的 ----
 G.eggs=ctx=>{
-  const t=pick([...D.LCH,...D.CH.map(x=>x[0])],1,x=>x);
+  const t=pick(D.HARD,1,x=>x,{review:false});
   const ds=distractChars(t,5,ctx.w.look+.3);
   const items=shuffle([t,t,t,...ds.slice(0,5)]);let found=0;
   ctx.prompt('听一听，找出 3 颗有这个字的蛋',()=>say(t));
@@ -145,7 +181,7 @@ G.stones=ctx=>{
   const steps=ctx.w.id<=1?4:5,per=ctx.w.id<=2?2:3;let k=0;
   const path=el('div','river');const hero=el('img','rhero');hero.src=dimg(ctx.hero);
   const rows=[];
-  const targets=pick([...D.LCH,...D.CH.map(x=>x[0])],steps,x=>x);
+  const targets=pick(D.HARD,steps,x=>x,{review:false});
   ctx.prompt('听一听，跟着这个字走',()=>say(targets[k]));
   const row=el('div','stonerow');
   const draw=()=>{row.innerHTML='';const t=targets[k];const ds=distractChars(t,per-1,ctx.w.look+.3);
@@ -158,7 +194,7 @@ G.stones=ctx=>{
 
 // ---- 打恐龙地鼠 ----
 G.whack=ctx=>{
-  const t=pick([...D.LCH,...D.CH.map(x=>x[0])],1,x=>x);const ds=distractChars(t,3,ctx.w.look+.3);
+  const t=pick(D.HARD,1,x=>x,{review:false});const ds=distractChars(t,3,ctx.w.look+.3);
   const goal=ctx.w.id<=1?4:5;let hits=0,alive=true,lastT=0;
   const ids=['tri','rap','ste','ank','pte','spi'];
   ctx.prompt('打恐龙地鼠！点举着这个字的恐龙',()=>say(t));
@@ -168,7 +204,7 @@ G.whack=ctx=>{
     m.onclick=async()=>{if(!m.classList.contains('up')||m.dataset.hit)return;
       if(m.dataset.c===t){m.dataset.hit=1;m.classList.add('bonk');SFX.hit();C.markRight(t);burstAt(m,16);meter.children[hits].classList.add('on');hits++;say(t);setTimeout(()=>{m.classList.remove('up','bonk');delete m.dataset.hit},500);
         if(hits>=goal){alive=false;ctx.right(field,t);await sleep(700);ctx.done()}}
-      else{ctx.wrong(m,t)}}}
+      else{ctx.wrong(m,t,null,{soft:1})}}}
   const tick=()=>{if(!alive||!document.body.contains(field))return;
     const free=holes.filter(m=>!m.classList.contains('up'));
     if(free.length){const m=free[rnd(free.length)];const now=Date.now();const want=(now-lastT>3500)||Math.random()<.45;const c=want?t:ds[rnd(ds.length)];if(c===t)lastT=now;
@@ -188,12 +224,12 @@ function memoryGame(ctx,pairs,{preview=2600,prompt='记忆翻牌！把字和图�
       if(lock||b.classList.contains('open'))return;b.classList.add('open');SFX.pop();open.push([b,c]);
       if(open.length===2){lock=true;const [[b1,c1],[b2,c2]]=open;open=[];
         if(c1.i===c2.i){b1.classList.add('matched');b2.classList.add('matched');SFX.ok();burstAt(b2,18);C.markRight(pairs[c1.i].k);got++;if(onMatch)onMatch(pairs[c1.i]);await say(pairs[c1.i].say);lock=false;if(got===pairs.length){ctx.right(g);await sleep(400);ctx.done()}}
-        else{ctx.wrong(b2,pairs[c1.i].k,()=>{});await sleep(900);b1.classList.remove('open');b2.classList.remove('open');lock=false}}};g.append(b)});
+        else{ctx.wrong(b2,pairs[c1.i].k,()=>{},{soft:1});await sleep(900);b1.classList.remove('open');b2.classList.remove('open');lock=false}}};g.append(b)});
   ctx.prompt(prompt,()=>say(prompt));ctx.box.append(g);
   say(prompt);setTimeout(()=>{g.querySelectorAll('.card').forEach(b=>b.classList.remove('open'));lock=false},preview+n*120)}
 G.memory=ctx=>{
-  const n=Math.max(3,Math.min(6,ctx.w.pairs));const mode=ctx.w.id>=3&&Math.random()<.5?'word':'ch';
-  const src=mode==='word'?D.WD.filter(x=>x[0].length===2):D.CH;
+  const n=Math.max(3,Math.min(6,ctx.w.pairs));const mode='word';
+  const src=withPic(D.WD).filter(x=>x[0].length<=3);
   const first=pick(src);const rest=uniqEmo(first,src,n-1);[first,...rest].forEach(x=>C.used().add(x[0]));
   memoryGame(ctx,[first,...rest].map(x=>({a:mode==='word'?tzw(x[0]):tz(x[0]),b:emo(x[1]),k:x[0],say:x[0]})),{preview:ctx.w.id<=1?3200:2600})};
 
@@ -211,7 +247,7 @@ function lineGame(ctx,pairs,prompt){
     else{const l=line(sel,b,'bad');setTimeout(()=>l.remove(),500);ctx.wrong(b,pairs[sel.dataset.i].k,()=>{})}});
   wrap.append(L,svg,R);ctx.box.append(wrap);say(prompt)}
 G.line=ctx=>{
-  const n=Math.max(3,Math.min(5,ctx.w.pairs));const useW=ctx.w.id>=2&&Math.random()<.5;const src=useW?D.WD:D.CH;
+  const n=Math.max(3,Math.min(5,ctx.w.pairs));const useW=true;const src=ph(ctx)===1?withPic(D.WD):withPic(D.PH);
   const first=pick(src);const rest=uniqEmo(first,src,n-1);[first,...rest].forEach(x=>C.used().add(x[0]));
   lineGame(ctx,[first,...rest].map(x=>({a:useW?tzw(x[0]):tz(x[0],'sm'),b:emo(x[1]),k:x[0],say:x[0]})),'连一连')};
 
@@ -255,7 +291,7 @@ function match3(ctx,{tiles,goal,size=6,prompt,sayT,onClear}){
   ctx.box.append(bar,board);say(prompt,...(sayT?[sayT]:[]))}
 const CANDY=['#ff7a7a','#ffc94d','#5ec8f2','#7bd389','#c79bff','#ff9ed8'];
 G.match3=ctx=>{
-  const t=pick([...D.LCH,...D.CH.map(x=>x[0])],1,x=>x);const K=ctx.w.id<=1?4:5;const ds=distractChars(t,K-1,ctx.w.look+.3,{hear:false});
+  const t=pick(D.HARD,1,x=>x,{review:false});const K=ctx.w.id<=1?4:5;const ds=distractChars(t,K-1,ctx.w.look+.3,{hear:false});
   const uni=ctx.w.id>=3;
   const tiles=[t,...ds].map((c,i)=>({k:c,html:`<span class="m3ch">${esc(c)}</span>`,color:uni?'#fff4d6':CANDY[i]}));
   match3(ctx,{tiles,goal:ctx.w.m3,size:ctx.w.id<=1?5:6,prompt:'消消乐！三个一样的字排一排，消掉这个字',sayT:t})};
@@ -286,7 +322,7 @@ function puzzle(ctx,{n,dino,bg,onDone}){
     if(placed===n){board.classList.add('done');C.bigConfetti();SFX.fanfare();ctx.right(board);setTimeout(async()=>{await say(d.n);if(onDone)onDone();ctx.done()},500)}}
   for(let i=0;i<n;i++){const p=el('div','pzp');p.dataset.i=i;pieces.push(p)}
   shuffle(pieces).forEach(p=>tray.append(p));
-  slots.forEach((s,i)=>s.onclick=()=>{if(!selP)return;const p=selP;selP=null;p.classList.remove('sel');if(+p.dataset.i===i)place(p,i);else{ctx.wrong(s,null,()=>{});shake(p)}});
+  slots.forEach((s,i)=>s.onclick=()=>{if(!selP)return;const p=selP;selP=null;p.classList.remove('sel');if(+p.dataset.i===i)place(p,i);else{ctx.wrong(s,null,()=>{},{soft:1});shake(p)}});
   pieces.forEach(p=>{let st=null;
     p.addEventListener('pointerdown',e=>{if(p.classList.contains('in'))return;e.preventDefault();p.setPointerCapture(e.pointerId);const r=p.getBoundingClientRect();st={x:e.clientX,y:e.clientY,ox:e.clientX-r.left,oy:e.clientY-r.top,moved:false,w:r.width,h:r.height}});
     p.addEventListener('pointermove',e=>{if(!st)return;if(!st.moved&&Math.hypot(e.clientX-st.x,e.clientY-st.y)>8){st.moved=true;p.classList.add('drag');document.body.append(p);p.style.position='fixed';}
@@ -353,13 +389,13 @@ function voiceGame(ctx,{text,show,lang='zh-CN',preplay,prompt}){
   ctx.box.append(box,SR?mic:el('span'),res,row,note);
   if(preplay)say(prompt).then(preplay);else say(prompt)}
 G.read=ctx=>{
-  const useS=ctx.w.id>=3&&Math.random()<.7;const t=useS?pick(D.SN):(ctx.w.id>=3?pick(D.PH):pick(D.WD));
-  voiceGame(ctx,{text:t[0],show:`<div class="sent">${emo(t[1])}<div class="stext big">${tzw(t[0])}</div></div>`,prompt:'大声读一读！'})};
+  const t=ph(ctx)===3?pick(D.SN):ph(ctx)===2?pick(D.PH):pick(D.WD);
+  voiceGame(ctx,{text:t[0],show:`<div class="sent">${t[1]?emo(t[1]):''}<div class="stext big">${tzw(t[0])}</div></div>`,prompt:'大声读一读！'})};
 G.speak=ctx=>{
   const r=Math.random();
   if(r<.3){const n=pickNum();const w=D.EN.N[n-1];voiceGame(ctx,{text:w,lang:'en-US',show:`<span class="num big">${n}</span>`,prompt:'听一听，跟着说！',preplay:()=>say(w)})}
   else if(r<.4){const L=pickLetter();voiceGame(ctx,{text:L[0],lang:'en-US',show:`<span class="lat big">${L[0]} ${L[1]}</span>`,prompt:'听一听，跟着说！',preplay:()=>say(L[0])})}
-  else{const t=ctx.w.id>=3?pick(D.PH):pick(D.WD);voiceGame(ctx,{text:t[0],show:`<div class="sent">${emo(t[1])}${tzw(t[0])}</div>`,prompt:'听一听，跟着说！',preplay:()=>say(t[0])})}};
+  else{const t=ph(ctx)===1?pick(D.WD):pick(D.PH);voiceGame(ctx,{text:t[0],show:`<div class="sent">${t[1]?emo(t[1]):''}${tzw(t[0])}</div>`,prompt:'听一听，跟着说！',preplay:()=>say(t[0])})}};
 
 // ---- 英语 ----
 function dots(n,kind){const sym=kind==='dino'?'🦕':'<i class="dot"></i>';let h='<span class="frame">';for(let i=0;i<10;i++)h+=`<span class="fc">${i<n?sym:''}</span>`;return h+'</span>'}
@@ -394,6 +430,6 @@ G.eword=ctx=>{
   ctx.box.append(bigShow(`<span class="num big">${n}</span>`),g);
   say('听一听，哪个是这个数字？').then(()=>ctx.replay())};
 
-G._helpers={choices,memoryGame,lineGame,match3,puzzle,tz,tzw,emo,dimg,PRAISE,CANDY,BGS,uniqEmo};
+G._helpers={simItems,withPic,choices,memoryGame,lineGame,match3,puzzle,tz,tzw,emo,dimg,PRAISE,CANDY,BGS,uniqEmo};
 window.GAMES=G;
 })();
