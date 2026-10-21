@@ -3,7 +3,8 @@
 给 4 岁半男孩玩的认字闯关游戏。只用《小羊上山》第 1–3 级总字表里的字。第 1、2 级的字孩子已经会了，不再单独考，只放在词语和句子里。设计思路是“够一够才能够到”，要学、要大人帮，不让孩子一路刷过去，也不让他一直泡在游戏里。
 
 ## 怎么玩
-- 直接用浏览器打开 `index.html`（双击即可，不需要网络；跟读 / 大声读的语音识别要联网）。
+- 单文件版：`dist/恐龙认字大冒险.html`（约 5.8 MB），图片、录音、字体都在里面，下载后用浏览器打开就能玩，不需要网络（跟读 / 大声读的语音识别要联网）。改了代码后运行 `python3 tools/build_single.py` 重新生成。
+- 也可以直接用浏览器打开 `index.html`（要和 `js/`、`assets/` 放在一起）。
 - 网页版：仓库需要是公开的（免费账号的私有仓库不能开 Pages）。Settings → Pages → Source 选 “Deploy from a branch” → 分支选 `claude/dino-word-adventure`，文件夹选 `/ (root)` → Save。一两分钟后打开 https://fugfjohfhgdhiy75-ship-it.github.io/xihe-cen/ 。在 iPhone / iPad 的 Safari 里点“分享 → 添加到主屏幕”，就能像 App 一样全屏打开。
 
 ## 内容
