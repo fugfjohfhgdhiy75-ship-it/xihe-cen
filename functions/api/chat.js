@@ -1,8 +1,8 @@
-import { json } from '../../lib/db.js';
-import { streamChat } from '../../lib/claude.js';
+import { json, getSettings } from '../../lib/db.js';
+import { streamChat, apiConfig } from '../../lib/claude.js';
 
 export async function onRequestPost({ env, request, waitUntil }) {
-  if (!env.ANTHROPIC_API_KEY) return json({ error: '还没有设置 ANTHROPIC_API_KEY。' }, 500);
+  if (!apiConfig(env, await getSettings(env.DB)).key) return json({ error: '还没有填 API key，去记忆页最下面的 API 里填一下。' }, 400);
   const body = await request.json().catch(() => ({}));
   const text = typeof body.text === 'string' ? body.text.trim() : '';
   if (!text) return json({ error: '消息是空的' }, 400);

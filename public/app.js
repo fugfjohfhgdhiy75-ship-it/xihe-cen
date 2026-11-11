@@ -457,6 +457,7 @@
       memories = m.memories;
       updateHeader();
       renderMemories();
+      renderApi(s);
     } catch (err) {
       if (err.message !== '401') toast(err.message);
     }
@@ -540,6 +541,30 @@
       toast('保存好了');
     } catch (err) { if (err.message !== '401') toast(err.message); }
   });
+  function renderApi(s) {
+    $('api-key').value = '';
+    $('api-key').placeholder = s.api_key_hint ? '已填 ' + s.api_key_hint + '，要换就重新输入'
+      : s.api_key_from_env ? '已在 Cloudflare 里设置，也可以填这里' : 'sk-ant-...';
+    $('api-base').value = s.api_base || '';
+  }
+  $('save-api').addEventListener('click', async () => {
+    const body = { api_base: $('api-base').value };
+    if ($('api-key').value.trim()) body.api_key = $('api-key').value;
+    try {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+      toast('保存好了');
+      await loadMemoryPage();
+    } catch (err) { if (err.message !== '401') toast(err.message); }
+  });
+  $('clear-key').addEventListener('click', async () => {
+    if (!confirm('清除页面里填的 API Key？')) return;
+    try {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify({ api_key: '' }) });
+      toast('清除了');
+      await loadMemoryPage();
+    } catch (err) { if (err.message !== '401') toast(err.message); }
+  });
+
   $('compact-now').addEventListener('click', async () => {
     const btn = $('compact-now');
     btn.disabled = true;

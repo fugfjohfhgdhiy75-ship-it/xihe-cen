@@ -123,6 +123,24 @@
     </div>
     <p class="group-note">每次只把最近的聊天原文发给我，更早的靠这里和上面的记忆，所以聊得再久也不会越来越贵。</p>
 
+    <div class="group-title">API</div>
+    <div class="group">
+      <label class="field">
+        <span class="field-label">API Key</span>
+        <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-...">
+      </label>
+      <label class="field">
+        <span class="field-label">接口地址</span>
+        <input id="api-base" type="url" autocomplete="off" placeholder="留空就用官方 api.anthropic.com">
+      </label>
+      <div class="row-actions">
+        <button id="clear-key" class="text-btn muted-btn">清除 Key</button>
+        <span class="spacer"></span>
+        <button id="save-api" class="text-btn">保存</button>
+      </div>
+    </div>
+    <p class="group-note" id="api-note">用官方的就只填 Key。用中转的话把中转给的地址填在接口地址里。Key 存在你自己的数据库里，页面上不会再显示出来。</p>
+
     <div class="group">
       <button id="logout" class="row danger-row">退出登录</button>
     </div>

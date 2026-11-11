@@ -19,9 +19,10 @@
    点 *Save and Deploy*。第一次部署完先别打开，还要做下面两步。
 4. **绑定数据库**：进这个 Pages 项目 → *Settings → Bindings → Add → D1 database*，
    Variable name 填 **`DB`**（大写），数据库选 `xiaowu`。
-5. **填密钥**：*Settings → Variables and Secrets → Add*，类型选 **Secret**，加两个：
-   - `ANTHROPIC_API_KEY`：你的 Anthropic API key
+5. **设进门密码**：*Settings → Variables and Secrets → Add*，类型选 **Secret**：
    - `APP_PASSWORD`：自己设一个进门密码（别人知道网址也进不来）
+
+   API key 不用在这里填，进门以后在**记忆页最下面的 API** 里填就行（见下面）。
 6. **重新部署**：*Deployments* → 最新那条右边的 `...` → *Retry deployment*。
 7. 打开 `https://你的项目名.pages.dev`，输入密码就能进门。
    iPhone 上用 Safari 打开 → 分享 → **添加到主屏幕**，以后就像一个 App 一样。
@@ -41,7 +42,12 @@
 - **记得的事**：一条一条的长期记忆，可以手动加、改、删。
   在聊天里**长按任意一句话**（电脑上右键）也能直接“记进记忆”。
 - **更早的经过**：自动整理出来的摘要，也可以自己改。点“现在整理”可以马上整理一次。
-- **模型**：Opus 5.5 / Sonnet 5.5 / Haiku 5.5，思考深度：低 / 中 / 高。
+- **API**：填 API Key 和接口地址。
+  - 用官方的：只填 Key，接口地址留空。
+  - 用中转的：Key 填中转给的，接口地址填中转给的地址（比如 `https://xxx.com`，不用带 `/v1`）。
+  - Key 存在你自己的 D1 数据库里，页面只显示末尾 4 位。
+  - 也可以照旧在 Cloudflare 里设 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`，页面里填的优先。
+- **模型**（输入框里的模型胶囊）：Opus 5.5 / Sonnet 5.5 / Haiku 5.5，思考深度：低 / 中等 / 高。
 
 ## 注意
 
@@ -54,7 +60,7 @@
 
 ```bash
 npm install
-printf 'ANTHROPIC_API_KEY=sk-...\nAPP_PASSWORD=test\n' > .dev.vars
+printf 'APP_PASSWORD=test\n' > .dev.vars
 npx wrangler pages dev public --d1 DB
 ```
 
