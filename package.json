@@ -1,0 +1,12 @@
+{
+  "name": "xiaowu",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo ok",
+    "dev": "wrangler pages dev public --d1 DB"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0"
+  }
+}

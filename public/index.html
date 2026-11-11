@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#F5F4EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#262624" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="小屋">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/style.css">
+<title>小屋</title>
+</head>
+<body>
+
+<!-- 登录 -->
+<section id="login" class="view hidden">
+  <div class="login-card">
+    <img src="/icon.svg" alt="" class="login-icon">
+    <h1>小屋</h1>
+    <p class="muted">输入你设的密码</p>
+    <form id="login-form">
+      <input id="login-password" type="password" autocomplete="current-password" placeholder="密码" required>
+      <button type="submit" class="btn-primary">进门</button>
+    </form>
+    <p id="login-error" class="error"></p>
+  </div>
+</section>
+
+<!-- 聊天 -->
+<section id="chat" class="view hidden">
+  <header class="topbar">
+    <div class="topbar-side"></div>
+    <div class="topbar-title">小屋</div>
+    <div class="topbar-side right">
+      <button id="open-memory" class="icon-btn" aria-label="记忆">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 11.5h5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="scroller" class="scroller">
+    <div id="load-more" class="load-more hidden"><button class="link-btn">更早的消息</button></div>
+    <div id="empty" class="empty hidden">
+      <img src="/icon.svg" alt="" class="empty-icon">
+      <h2 id="greeting">你来啦</h2>
+    </div>
+    <div id="messages" class="messages"></div>
+  </main>
+
+  <footer class="composer-wrap">
+    <form id="composer" class="composer">
+      <textarea id="input" rows="1" placeholder="和我说说话" enterkeyhint="send"></textarea>
+      <button id="send" type="submit" class="send-btn" disabled aria-label="发送">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg>
+      </button>
+    </form>
+  </footer>
+</section>
+
+<!-- 记忆 -->
+<section id="memory" class="view page hidden">
+  <header class="topbar solid">
+    <div class="topbar-side">
+      <button id="close-memory" class="icon-btn back" aria-label="返回">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+    </div>
+    <div class="topbar-title">记忆</div>
+    <div class="topbar-side right"></div>
+  </header>
+
+  <main class="page-body">
+    <div class="group-title">花费</div>
+    <div class="group">
+      <div class="row stats">
+        <div><div class="stat" id="cost-month">-</div><div class="stat-label">本月</div></div>
+        <div><div class="stat" id="cost-last">-</div><div class="stat-label">上一条</div></div>
+        <div><div class="stat" id="cost-total">-</div><div class="stat-label">累计</div></div>
+      </div>
+    </div>
+    <p class="group-note">按官方价格估算，美元。以 Anthropic 后台账单为准。</p>
+
+    <div class="group-title">关于我们</div>
+    <div class="group">
+      <textarea id="persona" class="area" rows="6" placeholder="写给我的话：我是谁，你是谁，我们怎么相处"></textarea>
+      <div class="row-actions"><button id="save-persona" class="link-btn">保存</button></div>
+    </div>
+    <p class="group-note">每次聊天都会带上，相当于我的性格和我们的约定。</p>
+
+    <div class="group-title with-action">
+      <span>记得的事 <span id="memory-count" class="muted"></span></span>
+      <button id="add-memory" class="link-btn">添加</button>
+    </div>
+    <div class="group" id="memory-list"></div>
+    <p class="group-note">点一条可以修改或删除。标着“自动”的是聊天时我自己记下的。</p>
+
+    <div class="group-title">更早的经过</div>
+    <div class="group">
+      <textarea id="summary" class="area" rows="6" placeholder="聊多了以后，较早的聊天会整理到这里"></textarea>
+      <div class="row-actions">
+        <span id="unsummarized" class="muted small"></span>
+        <span class="spacer"></span>
+        <button id="compact-now" class="link-btn">现在整理</button>
+        <button id="save-summary" class="link-btn">保存</button>
+      </div>
+    </div>
+    <p class="group-note">每次只把最近的聊天原文发给我，更早的靠这里和上面的记忆。所以聊得再久也不会越来越贵。</p>
+
+    <div class="group-title">模型</div>
+    <div class="group">
+      <div class="row">
+        <div class="segmented" id="model-seg">
+          <button data-v="claude-opus-5-5">Opus 5.5</button>
+          <button data-v="claude-sonnet-5-5">Sonnet 5.5</button>
+          <button data-v="claude-haiku-5-5">Haiku 5.5</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="row-label">思考深度</span>
+        <div class="segmented small" id="effort-seg">
+          <button data-v="low">低</button>
+          <button data-v="medium">中</button>
+          <button data-v="high">高</button>
+        </div>
+      </div>
+    </div>
+    <p class="group-note">Opus 最聪明，Sonnet 大约便宜一半，Haiku 最便宜。思考越深越慢也越贵。</p>
+
+    <div class="group">
+      <button id="logout" class="row danger-row">退出登录</button>
+    </div>
+  </main>
+</section>
+
+<!-- 底部弹出操作 -->
+<div id="sheet-backdrop" class="sheet-backdrop hidden"></div>
+<div id="action-sheet" class="action-sheet hidden">
+  <div class="sheet-group">
+    <button data-act="copy">复制</button>
+    <button data-act="remember">记进记忆</button>
+    <button data-act="delete" class="danger">删除这条</button>
+  </div>
+  <div class="sheet-group"><button data-act="cancel" class="bold">取消</button></div>
+</div>
+
+<div id="edit-sheet" class="edit-sheet hidden">
+  <div class="edit-head">
+    <button id="edit-cancel" class="link-btn">取消</button>
+    <span id="edit-title" class="bold">记忆</span>
+    <button id="edit-save" class="link-btn bold">保存</button>
+  </div>
+  <textarea id="edit-text" class="area" rows="5" placeholder="比如：我不吃香菜"></textarea>
+  <button id="edit-delete" class="danger-btn">删除这条记忆</button>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
