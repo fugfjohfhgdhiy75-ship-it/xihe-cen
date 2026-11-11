@@ -6,6 +6,12 @@
   let oldestId = null;
   let sending = false;
   let lastShownTs = 0;
+  let abortCtl = null;
+  let settings = { model: 'claude-opus-5-5', effort: 'low' };
+  const MODEL_NAMES = { 'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5' };
+  const EFFORT_NAMES = { low: '低', medium: '中等', high: '高' };
+  const ICON_COPY = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 5.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h.5"/></svg>';
+  const ICON_SPEAK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
   const isDesktop = matchMedia('(pointer: fine)').matches;
 
   // ---------- 工具 ----------
@@ -110,6 +116,7 @@
     $('chat').classList.remove('hidden');
     $('greeting').textContent = greeting();
     await loadMessages();
+    refreshHeader();
   }
 
   $('login-form').addEventListener('submit', async (e) => {
@@ -142,10 +149,52 @@
     el.dataset.id = m.id || '';
     el.dataset.ts = m.created_at || Date.now();
     el._raw = m.content;
-    if (m.role === 'assistant') el.innerHTML = renderMarkdown(m.content);
-    else el.textContent = m.content;
+    if (m.role === 'assistant') {
+      el.innerHTML = renderMarkdown(m.content);
+      addActions(el);
+    } else el.textContent = m.content;
     attachPress(el);
     return el;
+  }
+
+  function addActions(el) {
+    const bar = document.createElement('div');
+    bar.className = 'msg-actions';
+    const copy = document.createElement('button');
+    copy.innerHTML = ICON_COPY;
+    copy.setAttribute('aria-label', '复制');
+    copy.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(el._raw || ''); toast('复制好了'); } catch { toast('复制不了'); }
+    });
+    bar.appendChild(copy);
+    if ('speechSynthesis' in window) {
+      const speak = document.createElement('button');
+      speak.innerHTML = ICON_SPEAK;
+      speak.setAttribute('aria-label', '读出来');
+      speak.addEventListener('click', () => toggleSpeak(el._raw || '', speak));
+      bar.appendChild(speak);
+    }
+    el.appendChild(bar);
+  }
+
+  // 用手机自带的声音读出来（免费）
+  let speakingBtn = null;
+  function toggleSpeak(text, btn) {
+    const synth = window.speechSynthesis;
+    const wasMe = speakingBtn === btn;
+    synth.cancel();
+    if (speakingBtn) speakingBtn.classList.remove('on');
+    speakingBtn = null;
+    if (wasMe) return;
+    const plain = text.replace(/```[\s\S]*?```/g, '').replace(/[*_`#>~]/g, '');
+    const u = new SpeechSynthesisUtterance(plain);
+    u.lang = 'zh-CN';
+    const voice = synth.getVoices().find((v) => /zh[-_]CN/i.test(v.lang));
+    if (voice) u.voice = voice;
+    u.onend = u.onerror = () => { btn.classList.remove('on'); if (speakingBtn === btn) speakingBtn = null; };
+    btn.classList.add('on');
+    speakingBtn = btn;
+    synth.speak(u);
   }
 
   function timeSep(ts) {
@@ -210,7 +259,7 @@
   function autosize() {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 180) + 'px';
-    sendBtn.disabled = sending || !input.value.trim();
+    sendBtn.disabled = !sending && !input.value.trim();
   }
   input.addEventListener('input', autosize);
   input.addEventListener('keydown', (e) => {
@@ -222,9 +271,12 @@
 
   $('composer').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (sending) { if (abortCtl) abortCtl.abort(); return; }
     const text = input.value.trim();
-    if (!text || sending) return;
+    if (!text) return;
     sending = true;
+    abortCtl = new AbortController();
+    sendBtn.classList.add('stop');
     input.value = '';
     autosize();
 
@@ -250,7 +302,7 @@
     };
 
     try {
-      const res = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
+      const res = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }), signal: abortCtl.signal });
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = '';
@@ -277,18 +329,24 @@
       if (!finished) throw new Error('连接断了，回复可能没说完');
       botEl._raw = full;
       botEl.innerHTML = renderMarkdown(full);
+      addActions(botEl);
       attachPress(botEl);
     } catch (err) {
       if (err.message === '401') return;
+      const stopped = err.name === 'AbortError';
       botEl._raw = full;
       botEl.innerHTML = full ? renderMarkdown(full) : '';
-      const errEl = document.createElement('div');
-      errEl.className = 'msg error-msg';
-      errEl.textContent = err.message;
-      list.appendChild(errEl);
-      if (full) attachPress(botEl); else botEl.remove();
+      if (!stopped) {
+        const errEl = document.createElement('div');
+        errEl.className = 'error-msg';
+        errEl.textContent = err.message;
+        list.appendChild(errEl);
+      }
+      if (full) { addActions(botEl); attachPress(botEl); } else botEl.remove();
     } finally {
       sending = false;
+      abortCtl = null;
+      sendBtn.classList.remove('stop');
       autosize();
       if (atBottom()) scrollToBottom();
     }
@@ -311,17 +369,32 @@
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); cancel(); openActions(el); });
   }
 
-  function openActions(el) {
-    if (window.getSelection) window.getSelection().removeAllRanges();
-    pressTarget = el;
+  function showActions(items) {
+    const box = $('action-list');
+    box.innerHTML = '';
+    for (const [act, label, cls] of items) {
+      const b = document.createElement('button');
+      b.dataset.act = act;
+      b.textContent = label;
+      if (cls) b.className = cls;
+      box.appendChild(b);
+    }
     $('sheet-backdrop').classList.remove('hidden');
     $('action-sheet').classList.remove('hidden');
   }
-  function closeSheets() {
-    $('sheet-backdrop').classList.add('hidden');
-    $('action-sheet').classList.add('hidden');
-    $('edit-sheet').classList.add('hidden');
+  function openActions(el) {
+    if (window.getSelection) window.getSelection().removeAllRanges();
+    pressTarget = el;
+    showActions([['copy', '复制'], ['remember', '记进记忆'], ['delete', '删除这条', 'danger']]);
   }
+  function closeSheets() {
+    for (const id of ['sheet-backdrop', 'action-sheet', 'edit-sheet', 'model-sheet']) $(id).classList.add('hidden');
+  }
+
+  $('open-menu').addEventListener('click', () => {
+    pressTarget = null;
+    showActions([['memory', '记忆'], ['model', '换模型'], ['logout', '退出登录', 'danger']]);
+  });
   $('sheet-backdrop').addEventListener('click', closeSheets);
 
   $('action-sheet').addEventListener('click', async (e) => {
@@ -329,7 +402,11 @@
     if (!act) return;
     const el = pressTarget;
     closeSheets();
-    if (!el || act === 'cancel') return;
+    if (act === 'cancel') return;
+    if (act === 'memory') return openMemory();
+    if (act === 'model') return openModelSheet();
+    if (act === 'logout') return logout();
+    if (!el) return;
     const raw = el._raw || el.textContent;
     try {
       if (act === 'copy') {
@@ -350,11 +427,12 @@
 
   // ---------- 记忆页 ----------
   const page = $('memory');
-  $('open-memory').addEventListener('click', () => {
+  function openMemory() {
     page.classList.remove('hidden');
     requestAnimationFrame(() => requestAnimationFrame(() => page.classList.add('open')));
     loadMemoryPage();
-  });
+  }
+  $('open-memory').addEventListener('click', openMemory);
   $('close-memory').addEventListener('click', () => {
     page.classList.remove('open');
     setTimeout(() => page.classList.add('hidden'), 320);
@@ -375,9 +453,9 @@
       $('cost-month').textContent = money(s.cost.month);
       $('cost-total').textContent = money(s.cost.total);
       $('cost-last').textContent = money(s.cost.last);
-      setSeg('model-seg', s.model);
-      setSeg('effort-seg', s.effort);
+      settings = s;
       memories = m.memories;
+      updateHeader();
       renderMemories();
     } catch (err) {
       if (err.message !== '401') toast(err.message);
@@ -387,7 +465,8 @@
   function renderMemories() {
     const box = $('memory-list');
     box.innerHTML = '';
-    $('memory-count').textContent = memories.length ? memories.length + ' 条' : '';
+    $('mem-sub').textContent = memories.length ? `记得 ${memories.length} 件事` : '还没有记忆';
+    updateHeader();
     if (!memories.length) {
       box.innerHTML = '<div class="mem-empty">还没有。可以手动添加，也可以在聊天里长按一句话记下来。</div>';
       return;
@@ -413,14 +492,38 @@
   function setSeg(id, value) {
     for (const b of $(id).querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === value);
   }
-  for (const [id, key] of [['model-seg', 'model'], ['effort-seg', 'effort']]) {
+  function updateHeader() {
+    $('pill-model').textContent = MODEL_NAMES[settings.model] || settings.model;
+    $('pill-effort').textContent = EFFORT_NAMES[settings.effort] || settings.effort;
+    $('nav-sub').textContent = memories.length ? `记得 ${memories.length} 件事` : (MODEL_NAMES[settings.model] || '');
+  }
+  async function refreshHeader() {
+    try {
+      const [s, m] = await Promise.all([
+        api('/api/settings').then((r) => r.json()),
+        api('/api/memories').then((r) => r.json()),
+      ]);
+      settings = s;
+      memories = m.memories;
+      updateHeader();
+    } catch {}
+  }
+  function openModelSheet() {
+    setSeg('model-options', settings.model);
+    setSeg('effort-seg', settings.effort);
+    $('sheet-backdrop').classList.remove('hidden');
+    $('model-sheet').classList.remove('hidden');
+  }
+  $('model-pill').addEventListener('click', openModelSheet);
+  for (const [id, key] of [['model-options', 'model'], ['effort-seg', 'effort']]) {
     $(id).addEventListener('click', async (e) => {
       const v = e.target.closest('button')?.dataset.v;
       if (!v) return;
       setSeg(id, v);
+      settings[key] = v;
+      updateHeader();
       try {
         await api('/api/settings', { method: 'PUT', body: JSON.stringify({ [key]: v }) });
-        toast('改好了');
       } catch (err) { if (err.message !== '401') toast(err.message); }
     });
   }
@@ -492,12 +595,51 @@
     } catch (err) { if (err.message !== '401') toast(err.message); }
   });
 
-  $('logout').addEventListener('click', () => {
+  function logout() {
     localStorage.removeItem(TOKEN_KEY);
     token = '';
     page.classList.remove('open');
+    page.classList.add('hidden');
     showLogin();
-  });
+  }
+  $('logout').addEventListener('click', logout);
+  $('plus-btn').addEventListener('click', () => openEditor(null));
+
+  // 输入框高度 -> 消息区留白
+  const wrap = $('composer-wrap');
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--composer-h', wrap.offsetHeight + 12 + 'px');
+  }).observe(wrap);
+
+  // 回到底部按钮
+  scroller.addEventListener('scroll', () => {
+    $('to-bottom').classList.toggle('hidden', atBottom());
+  }, { passive: true });
+  $('to-bottom').addEventListener('click', () => scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' }));
+
+  // 语音输入（浏览器支持才显示）
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    const mic = $('mic-btn');
+    mic.classList.remove('hidden');
+    let rec = null;
+    mic.addEventListener('click', () => {
+      if (rec) { rec.stop(); return; }
+      rec = new SR();
+      rec.lang = 'zh-CN';
+      rec.interimResults = true;
+      const base = input.value;
+      rec.onresult = (e) => {
+        let t = '';
+        for (const r of e.results) t += r[0].transcript;
+        input.value = base + t;
+        autosize();
+      };
+      rec.onend = rec.onerror = () => { mic.classList.remove('on'); rec = null; };
+      mic.classList.add('on');
+      rec.start();
+    });
+  }
 
   // ---------- 启动 ----------
   if (token) showChat().catch(() => {});

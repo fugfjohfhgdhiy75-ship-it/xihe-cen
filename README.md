@@ -1,6 +1,6 @@
 # 小屋
 
-一个只属于自己的聊天小屋：只有**聊天**和**记忆**两个页面，界面参考 Claude iOS App。
+一个只属于自己的聊天小屋：只有**聊天**和**记忆**两个页面，界面参考 iOS 27 上的 Claude App（玻璃悬浮按钮、大字号）。
 用 Cloudflare Pages（免费）托管，记忆存在 Cloudflare D1 数据库（免费），不需要 VPS。
 唯一要花钱的是 Anthropic API，按用量计费。
 
